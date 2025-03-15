@@ -1,5 +1,5 @@
 %General Mission Analysis Tool(GMAT) Script
-%Created: 2025-03-14 20:12:17
+%Created: 2025-03-14 20:26:30
 
 
 %----------------------------------------
@@ -8,7 +8,7 @@
 
 Create Spacecraft Harvester;
 GMAT Harvester.DateFormat = UTCGregorian;
-GMAT Harvester.Epoch = '14 Mar 2025 23:32:45.000';
+GMAT Harvester.Epoch = '14 Mar 2025 10:19:25.000';
 GMAT Harvester.CoordinateSystem = EarthMJ2000Eq;
 GMAT Harvester.DisplayStateType = Keplerian;
 GMAT Harvester.SMA = 6794.904396949999;
@@ -57,32 +57,32 @@ GMAT Harvester.EulerAngleSequence = '321';
 %---------- ForceModels
 %----------------------------------------
 
-Create ForceModel DefaultProp_ForceModel;
-GMAT DefaultProp_ForceModel.CentralBody = Earth;
-GMAT DefaultProp_ForceModel.PrimaryBodies = {Earth};
-GMAT DefaultProp_ForceModel.Drag = None;
-GMAT DefaultProp_ForceModel.SRP = Off;
-GMAT DefaultProp_ForceModel.RelativisticCorrection = Off;
-GMAT DefaultProp_ForceModel.ErrorControl = RSSStep;
-GMAT DefaultProp_ForceModel.GravityField.Earth.Degree = 4;
-GMAT DefaultProp_ForceModel.GravityField.Earth.Order = 4;
-GMAT DefaultProp_ForceModel.GravityField.Earth.StmLimit = 100;
-GMAT DefaultProp_ForceModel.GravityField.Earth.PotentialFile = 'JGM2.cof';
-GMAT DefaultProp_ForceModel.GravityField.Earth.TideModel = 'None';
+Create ForceModel LowEarthProp_ForceModel;
+GMAT LowEarthProp_ForceModel.CentralBody = Earth;
+GMAT LowEarthProp_ForceModel.PrimaryBodies = {Earth};
+GMAT LowEarthProp_ForceModel.Drag = None;
+GMAT LowEarthProp_ForceModel.SRP = Off;
+GMAT LowEarthProp_ForceModel.RelativisticCorrection = Off;
+GMAT LowEarthProp_ForceModel.ErrorControl = RSSStep;
+GMAT LowEarthProp_ForceModel.GravityField.Earth.Degree = 4;
+GMAT LowEarthProp_ForceModel.GravityField.Earth.Order = 4;
+GMAT LowEarthProp_ForceModel.GravityField.Earth.StmLimit = 100;
+GMAT LowEarthProp_ForceModel.GravityField.Earth.PotentialFile = 'JGM2.cof';
+GMAT LowEarthProp_ForceModel.GravityField.Earth.TideModel = 'None';
 
 %----------------------------------------
 %---------- Propagators
 %----------------------------------------
 
-Create Propagator DefaultProp;
-GMAT DefaultProp.FM = DefaultProp_ForceModel;
-GMAT DefaultProp.Type = RungeKutta89;
-GMAT DefaultProp.InitialStepSize = 60;
-GMAT DefaultProp.Accuracy = 9.999999999999999e-12;
-GMAT DefaultProp.MinStep = 0.001;
-GMAT DefaultProp.MaxStep = 2700;
-GMAT DefaultProp.MaxStepAttempts = 50;
-GMAT DefaultProp.StopIfAccuracyIsViolated = true;
+Create Propagator LowEarthProp;
+GMAT LowEarthProp.FM = LowEarthProp_ForceModel;
+GMAT LowEarthProp.Type = RungeKutta89;
+GMAT LowEarthProp.InitialStepSize = 60;
+GMAT LowEarthProp.Accuracy = 9.999999999999999e-12;
+GMAT LowEarthProp.MinStep = 0.001;
+GMAT LowEarthProp.MaxStep = 2700;
+GMAT LowEarthProp.MaxStepAttempts = 50;
+GMAT LowEarthProp.StopIfAccuracyIsViolated = true;
 
 %----------------------------------------
 %---------- Subscribers
@@ -141,4 +141,4 @@ GMAT DefaultGroundTrackPlot.TextureMap = 'ModifiedBlueMarble.jpg';
 %----------------------------------------
 
 BeginMissionSequence;
-Propagate DefaultProp(Harvester) {Harvester.ElapsedSecs = 12000.0};
+Propagate LowEarthProp(Harvester) {Harvester.ElapsedSecs = 12000.0};
