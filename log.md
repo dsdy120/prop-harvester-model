@@ -12,3 +12,8 @@
 # 2025-03-15
 - Settled on [MSISE-90] atmospheric model since it provides better results than Jacchia-Roberts model (see https://www.sciencedirect.com/science/article/abs/pii/S0094576501000157)
 - Added Lunar and Sun perturbations in case there is any effect on the orbit
+- Decided on SPICE attitude model for harvester to allow maximum control by Python script
+
+# 2025-03-21
+- branching to try direct Python
+- 
