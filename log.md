@@ -16,4 +16,6 @@
 
 # 2025-03-21
 - branching to try direct Python
+- never mind, GMAT is better for now
+- Found sample SPAD file for JWST at \gmat-win-R2022a\GMAT\data\vehicle\spad, added to repo
 - 
