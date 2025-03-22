@@ -18,4 +18,4 @@
 - branching to try direct Python
 - never mind, GMAT is better for now
 - Found sample SPAD file for JWST at \gmat-win-R2022a\GMAT\data\vehicle\spad, added to repo
-- 
+- SPAD files not usable for drag in GMAT according to [this link](https://docs.google.com/document/d/1tL2fp7NzYW6DZW6qtb0pLZYqV5YRxLy8AskRScsVRoM/edit?tab=t.0), to roll own drag model in Python
