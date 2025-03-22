@@ -21,3 +21,5 @@
 - SPAD files not usable for drag in GMAT according to [this link](https://docs.google.com/document/d/1tL2fp7NzYW6DZW6qtb0pLZYqV5YRxLy8AskRScsVRoM/edit?tab=t.0), to roll own drag model in Python
 - Found that Python interface for GMAT requires 32-bit Python, to take note when creating venv
 - First-cut model for basic orbit achieved
+- Acquainted with thruster model parameters
+- Learned Finite Burn modelling
