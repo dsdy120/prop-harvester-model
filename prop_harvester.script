@@ -11,12 +11,12 @@ GMAT Harvester.DateFormat = UTCGregorian;
 GMAT Harvester.Epoch = '14 Mar 2025 10:19:25.000';
 GMAT Harvester.CoordinateSystem = EarthMJ2000Eq;
 GMAT Harvester.DisplayStateType = Keplerian;
-GMAT Harvester.SMA = 6794.904396950001;
-GMAT Harvester.ECC = 0.000639600000000296;
+GMAT Harvester.SMA = 6794.904396950003;
+GMAT Harvester.ECC = 0.0006396000000000541;
 GMAT Harvester.INC = 51.63800000000001;
 GMAT Harvester.RAAN = 56.35260000000003;
-GMAT Harvester.AOP = 22.40950000002791;
-GMAT Harvester.TA = 117.049531891954;
+GMAT Harvester.AOP = 22.409500000029;
+GMAT Harvester.TA = 117.0495318919529;
 GMAT Harvester.DryMass = 100000;
 GMAT Harvester.Cd = 2.2;
 GMAT Harvester.Cr = 1.8;
@@ -53,6 +53,90 @@ GMAT Harvester.AttitudeDisplayStateType = 'Quaternion';
 GMAT Harvester.AttitudeRateDisplayStateType = 'AngularVelocity';
 GMAT Harvester.AttitudeCoordinateSystem = EarthMJ2000Eq;
 GMAT Harvester.EulerAngleSequence = '321';
+
+%----------------------------------------
+%---------- Hardware Components
+%----------------------------------------
+
+Create SolarPowerSystem SolarPowerSystem1;
+GMAT SolarPowerSystem1.EpochFormat = 'UTCGregorian';
+GMAT SolarPowerSystem1.InitialEpoch = '01 Jan 2000 11:59:28.000';
+GMAT SolarPowerSystem1.InitialMaxPower = 1.2;
+GMAT SolarPowerSystem1.AnnualDecayRate = 5;
+GMAT SolarPowerSystem1.Margin = 5;
+GMAT SolarPowerSystem1.BusCoeff1 = 0.3;
+GMAT SolarPowerSystem1.BusCoeff2 = 0;
+GMAT SolarPowerSystem1.BusCoeff3 = 0;
+GMAT SolarPowerSystem1.ShadowModel = 'DualCone';
+GMAT SolarPowerSystem1.ShadowBodies = {'Earth'};
+GMAT SolarPowerSystem1.SolarCoeff1 = 1.32077;
+GMAT SolarPowerSystem1.SolarCoeff2 = -0.10848;
+GMAT SolarPowerSystem1.SolarCoeff3 = -0.11665;
+GMAT SolarPowerSystem1.SolarCoeff4 = 0.10843;
+GMAT SolarPowerSystem1.SolarCoeff5 = -0.01279;
+
+Create ElectricTank ElectricTank1;
+GMAT ElectricTank1.AllowNegativeFuelMass = false;
+GMAT ElectricTank1.FuelMass = 100000;
+
+Create ElectricThruster ElectricThruster1;
+GMAT ElectricThruster1.CoordinateSystem = Local;
+GMAT ElectricThruster1.Origin = Earth;
+GMAT ElectricThruster1.Axes = SpacecraftBody;
+GMAT ElectricThruster1.ThrustDirection1 = 1;
+GMAT ElectricThruster1.ThrustDirection2 = 0;
+GMAT ElectricThruster1.ThrustDirection3 = 0;
+GMAT ElectricThruster1.DutyCycle = 1;
+GMAT ElectricThruster1.ThrustScaleFactor = 1;
+GMAT ElectricThruster1.DecrementMass = true;
+GMAT ElectricThruster1.Tank = {ElectricTank1};
+GMAT ElectricThruster1.MixRatio = [ 1 ];
+GMAT ElectricThruster1.GravitationalAccel = 9.81;
+GMAT ElectricThruster1.ThrustModel = ConstantThrustAndIsp;
+GMAT ElectricThruster1.MaximumUsablePower = 72.66;
+GMAT ElectricThruster1.MinimumUsablePower = 6.38;
+GMAT ElectricThruster1.ThrustCoeff1 = -5.19082;
+GMAT ElectricThruster1.ThrustCoeff2 = 2.96519;
+GMAT ElectricThruster1.ThrustCoeff3 = -14.4789;
+GMAT ElectricThruster1.ThrustCoeff4 = 54.05382;
+GMAT ElectricThruster1.ThrustCoeff5 = -0.00100092;
+GMAT ElectricThruster1.MassFlowCoeff1 = -0.004776;
+GMAT ElectricThruster1.MassFlowCoeff2 = 0.05717;
+GMAT ElectricThruster1.MassFlowCoeff3 = -0.09956;
+GMAT ElectricThruster1.MassFlowCoeff4 = 0.03211;
+GMAT ElectricThruster1.MassFlowCoeff5 = 2.13781;
+GMAT ElectricThruster1.FixedEfficiency = 0.7;
+GMAT ElectricThruster1.Isp = -4200;
+GMAT ElectricThruster1.ConstantThrust = 0.237;
+
+Create ElectricThruster ElectricThruster2;
+GMAT ElectricThruster2.CoordinateSystem = Local;
+GMAT ElectricThruster2.Origin = Earth;
+GMAT ElectricThruster2.Axes = VNB;
+GMAT ElectricThruster2.ThrustDirection1 = 1;
+GMAT ElectricThruster2.ThrustDirection2 = 0;
+GMAT ElectricThruster2.ThrustDirection3 = 0;
+GMAT ElectricThruster2.DutyCycle = 1;
+GMAT ElectricThruster2.ThrustScaleFactor = 1;
+GMAT ElectricThruster2.DecrementMass = false;
+GMAT ElectricThruster2.GravitationalAccel = 9.81;
+GMAT ElectricThruster2.ThrustModel = ThrustMassPolynomial;
+GMAT ElectricThruster2.MaximumUsablePower = 72.66;
+GMAT ElectricThruster2.MinimumUsablePower = 6.38;
+GMAT ElectricThruster2.ThrustCoeff1 = -5.19082;
+GMAT ElectricThruster2.ThrustCoeff2 = 2.96519;
+GMAT ElectricThruster2.ThrustCoeff3 = -14.4789;
+GMAT ElectricThruster2.ThrustCoeff4 = 54.05382;
+GMAT ElectricThruster2.ThrustCoeff5 = -0.00100092;
+GMAT ElectricThruster2.MassFlowCoeff1 = -0.004776;
+GMAT ElectricThruster2.MassFlowCoeff2 = 0.05717;
+GMAT ElectricThruster2.MassFlowCoeff3 = -0.09956;
+GMAT ElectricThruster2.MassFlowCoeff4 = 0.03211;
+GMAT ElectricThruster2.MassFlowCoeff5 = 2.13781;
+GMAT ElectricThruster2.FixedEfficiency = 0.7;
+GMAT ElectricThruster2.Isp = 4200;
+GMAT ElectricThruster2.ConstantThrust = 0.237;
+
 
 
 
@@ -99,6 +183,13 @@ GMAT LowEarthProp.MinStep = 0.001;
 GMAT LowEarthProp.MaxStep = 2700;
 GMAT LowEarthProp.MaxStepAttempts = 50;
 GMAT LowEarthProp.StopIfAccuracyIsViolated = true;
+
+%----------------------------------------
+%---------- Burns
+%----------------------------------------
+
+Create FiniteBurn FiniteBurn1;
+GMAT FiniteBurn1.ThrottleLogicAlgorithm = 'MaxNumberOfThrusters';
 
 %----------------------------------------
 %---------- Subscribers
