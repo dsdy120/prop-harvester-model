@@ -23,3 +23,8 @@
 - First-cut model for basic orbit achieved
 - Acquainted with thruster model parameters
 - Learned Finite Burn modelling
+
+# 2025-03-27
+- Added basic thruster model
+- Added basic finite burn model
+- Added propellant scoop as negative-Isp thruster
