@@ -11,12 +11,12 @@ GMAT Harvester.DateFormat = UTCGregorian;
 GMAT Harvester.Epoch = '14 Mar 2025 10:19:25.000';
 GMAT Harvester.CoordinateSystem = EarthMJ2000Eq;
 GMAT Harvester.DisplayStateType = Keplerian;
-GMAT Harvester.SMA = 6794.904396950006;
-GMAT Harvester.ECC = 0.0006395999999996086;
+GMAT Harvester.SMA = 6794.904396950007;
+GMAT Harvester.ECC = 0.0006395999999997788;
 GMAT Harvester.INC = 51.63800000000001;
 GMAT Harvester.RAAN = 56.35260000000003;
-GMAT Harvester.AOP = 22.40950000004527;
-GMAT Harvester.TA = 117.0495318919367;
+GMAT Harvester.AOP = 22.4095000000774;
+GMAT Harvester.TA = 117.0495318919046;
 GMAT Harvester.DryMass = 100000;
 GMAT Harvester.Cd = 2.2;
 GMAT Harvester.Cr = 1.8;
@@ -146,6 +146,7 @@ GMAT ElectricThruster2.ConstantThrust = 0.237;
 
 
 
+
 %----------------------------------------
 %---------- ForceModels
 %----------------------------------------
@@ -195,6 +196,12 @@ GMAT LowEarthProp.StopIfAccuracyIsViolated = true;
 Create FiniteBurn FiniteBurn1;
 GMAT FiniteBurn1.Thrusters = {ElectricThruster2, PropellantScoop};
 GMAT FiniteBurn1.ThrottleLogicAlgorithm = 'MaxNumberOfThrusters';
+
+%----------------------------------------
+%---------- DataInterfaces
+%----------------------------------------
+
+Create ThrustHistoryFile ThrustHistoryFile1;
 
 %----------------------------------------
 %---------- Subscribers
@@ -258,11 +265,35 @@ GMAT XYPlot1.YVariables = {Harvester.Earth.Altitude};
 GMAT XYPlot1.ShowGrid = true;
 GMAT XYPlot1.ShowPlot = true;
 
+Create ReportFile DefaultReportFile;
+GMAT DefaultReportFile.SolverIterations = Current;
+GMAT DefaultReportFile.UpperLeft = [ 0 0 ];
+GMAT DefaultReportFile.Size = [ 0 0 ];
+GMAT DefaultReportFile.RelativeZOrder = 0;
+GMAT DefaultReportFile.Maximized = false;
+GMAT DefaultReportFile.Filename = 'DefaultReportFile.txt';
+GMAT DefaultReportFile.Precision = 16;
+GMAT DefaultReportFile.WriteHeaders = true;
+GMAT DefaultReportFile.LeftJustify = On;
+GMAT DefaultReportFile.ZeroFill = Off;
+GMAT DefaultReportFile.FixedWidth = true;
+GMAT DefaultReportFile.Delimiter = ' ';
+GMAT DefaultReportFile.ColumnWidth = 23;
+GMAT DefaultReportFile.WriteReport = true;
+
+%----------------------------------------
+%---------- Functions
+%----------------------------------------
+
+Create GmatFunction AtmosphericDensity;
+GMAT AtmosphericDensity.FunctionPath = 'AtmosphericDensity.gmf';
+
 %----------------------------------------
 %---------- Arrays, Variables, Strings
 %----------------------------------------
 Create Variable DynamicPressure;
 GMAT DynamicPressure = 0;
+
 
 
 
@@ -273,5 +304,7 @@ GMAT DynamicPressure = 0;
 
 BeginMissionSequence;
 BeginFiniteBurn FiniteBurn1(Harvester);
+GMAT Not_Set = Not_Set;
+UpdateDynamicData;
 Propagate LowEarthProp(Harvester) {Harvester.ElapsedSecs = 12000.0};
 EndFiniteBurn FiniteBurn1(Harvester);

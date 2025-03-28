@@ -28,3 +28,5 @@
 - Added basic thruster model
 - Added basic finite burn model
 - Added propellant scoop as negative-Isp thruster
+- Added AIAA paper template
+- Investigated using spacecraft properties in equations / scripts
