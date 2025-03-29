@@ -146,7 +146,6 @@ GMAT ElectricThruster2.ConstantThrust = 0.237;
 
 
 
-
 %----------------------------------------
 %---------- ForceModels
 %----------------------------------------
@@ -175,19 +174,32 @@ GMAT LowEarthProp_ForceModel.Drag.SchattenErrorModel = 'Nominal';
 GMAT LowEarthProp_ForceModel.Drag.SchattenTimingModel = 'NominalCycle';
 GMAT LowEarthProp_ForceModel.Drag.DragModel = 'Spherical';
 
+Create ForceModel Propagator1_ForceModel;
+GMAT Propagator1_ForceModel.CentralBody = Earth;
+GMAT Propagator1_ForceModel.PrimaryBodies = {Earth};
+GMAT Propagator1_ForceModel.Drag = None;
+GMAT Propagator1_ForceModel.SRP = Off;
+GMAT Propagator1_ForceModel.RelativisticCorrection = Off;
+GMAT Propagator1_ForceModel.ErrorControl = RSSStep;
+GMAT Propagator1_ForceModel.GravityField.Earth.Degree = 4;
+GMAT Propagator1_ForceModel.GravityField.Earth.Order = 4;
+GMAT Propagator1_ForceModel.GravityField.Earth.StmLimit = 100;
+GMAT Propagator1_ForceModel.GravityField.Earth.PotentialFile = 'JGM2.cof';
+GMAT Propagator1_ForceModel.GravityField.Earth.TideModel = 'None';
+
 %----------------------------------------
 %---------- Propagators
 %----------------------------------------
 
-Create Propagator LowEarthProp;
-GMAT LowEarthProp.FM = LowEarthProp_ForceModel;
-GMAT LowEarthProp.Type = RungeKutta89;
-GMAT LowEarthProp.InitialStepSize = 60;
-GMAT LowEarthProp.Accuracy = 9.999999999999999e-12;
-GMAT LowEarthProp.MinStep = 0.001;
-GMAT LowEarthProp.MaxStep = 2700;
-GMAT LowEarthProp.MaxStepAttempts = 50;
-GMAT LowEarthProp.StopIfAccuracyIsViolated = true;
+Create Propagator Propagator1;
+GMAT Propagator1.FM = Propagator1_ForceModel;
+GMAT Propagator1.Type = RungeKutta89;
+GMAT Propagator1.InitialStepSize = 60;
+GMAT Propagator1.Accuracy = 9.999999999999999e-12;
+GMAT Propagator1.MinStep = 0.001;
+GMAT Propagator1.MaxStep = 2700;
+GMAT Propagator1.MaxStepAttempts = 50;
+GMAT Propagator1.StopIfAccuracyIsViolated = true;
 
 %----------------------------------------
 %---------- Burns
@@ -281,6 +293,35 @@ GMAT DefaultReportFile.Delimiter = ' ';
 GMAT DefaultReportFile.ColumnWidth = 23;
 GMAT DefaultReportFile.WriteReport = true;
 
+Create DynamicDataDisplay DynamicDataDisplay1;
+GMAT DynamicDataDisplay1.UpperLeft = [ 0 0 ];
+GMAT DynamicDataDisplay1.Size = [ 0 0 ];
+GMAT DynamicDataDisplay1.RelativeZOrder = 0;
+GMAT DynamicDataDisplay1.Maximized = false;
+GMAT DynamicDataDisplay1.AddParameters = {1, '', ''};
+GMAT DynamicDataDisplay1.AddParameters = {2, '', ''};
+GMAT DynamicDataDisplay1.RowTextColors = {1, [0 0 0], [0 0 0]};
+GMAT DynamicDataDisplay1.RowTextColors = {2, [0 0 0], [0 0 0]};
+GMAT DynamicDataDisplay1.WarnColor = [218 165 32];
+GMAT DynamicDataDisplay1.CritColor = [255 0 0];
+
+Create ReportFile ReportFile1;
+GMAT ReportFile1.SolverIterations = Current;
+GMAT ReportFile1.UpperLeft = [ 0 0 ];
+GMAT ReportFile1.Size = [ 0 0 ];
+GMAT ReportFile1.RelativeZOrder = 0;
+GMAT ReportFile1.Maximized = false;
+GMAT ReportFile1.Filename = 'ReportFile1.txt';
+GMAT ReportFile1.Precision = 16;
+GMAT ReportFile1.Add = {Harvester.A1ModJulian, Harvester.EarthMJ2000Eq.X};
+GMAT ReportFile1.WriteHeaders = true;
+GMAT ReportFile1.LeftJustify = On;
+GMAT ReportFile1.ZeroFill = Off;
+GMAT ReportFile1.FixedWidth = true;
+GMAT ReportFile1.Delimiter = ' ';
+GMAT ReportFile1.ColumnWidth = 23;
+GMAT ReportFile1.WriteReport = true;
+
 %----------------------------------------
 %---------- Functions
 %----------------------------------------
@@ -306,5 +347,5 @@ BeginMissionSequence;
 BeginFiniteBurn FiniteBurn1(Harvester);
 GMAT Not_Set = Not_Set;
 UpdateDynamicData;
-Propagate LowEarthProp(Harvester) {Harvester.ElapsedSecs = 12000.0};
+Propagate Propagator1(Harvester) {Harvester.ElapsedSecs = 12000.0};
 EndFiniteBurn FiniteBurn1(Harvester);
