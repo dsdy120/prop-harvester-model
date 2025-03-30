@@ -2,9 +2,19 @@ import pandas as pd
 import pykep as pk
 import numpy as np
 import matplotlib.pyplot as plt
+import nrlmsise00
 
-# Gravitational parameter (Earth)
+####################
+# Constants
+####################
+# Gravitational parameters
 MU_EARTH = 398600.4418  # km^3/s^2
+R_EARTH = 6378.137  # km, following WGS84
+J2_EARTH = 1.08262668e-3  # J2 coefficient for Earth
+F_EARTH = 0.003352810664747480  # Flattening factor for Earth
+
+
+
 
 # Define perturbation (extendable)
 def perturbation(r, v):
@@ -28,7 +38,7 @@ def derivatives(state):
     mass_dot = -0.01  # Example: mass loss rate (modify as needed)
 
     # Concatenate all derivatives
-    return np.hstack((v, acc, h_dot, mass_dot))
+    return np.hstack((v, acc, mass_dot))
 
 # RK4 Integrator
 def rk4_step(state, dt):
