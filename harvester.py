@@ -92,19 +92,19 @@ def main():
 
     # Plot trajectory in 3D
     fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
+    ax = fig.add_subplot(111, projection='3d',computed_zorder=False)
     u, v = np.mgrid[0:2*np.pi:36j, 0:np.pi:18j]
     x = R_EARTH_KM * np.cos(u)*np.sin(v)
     y = R_EARTH_KM * np.sin(u)*np.sin(v)
     z = R_EARTH_KM * np.cos(v)
-    ax.plot_surface(x, y, z, color="g", alpha=0.1, zorder=0)  # Set alpha for transparency and zorder for layering
+    ax.plot_surface(x, y, z, color="g", alpha=1, zorder=-1)  # Set alpha for transparency and zorder for layering
 
     x = (R_EARTH_KM + 100) * np.cos(u)*np.sin(v)
     y = (R_EARTH_KM + 100) * np.sin(u)*np.sin(v)
     z = (R_EARTH_KM + 100) * np.cos(v)
-    ax.plot_surface(x, y, z, color="b", alpha=0.1, zorder=0)  # Set alpha for transparency and zorder for layering
+    ax.plot_surface(x, y, z, color="b", alpha=0.1, zorder=-1)  # Set alpha for transparency and zorder for layering
 
-    ax.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2],color="r",zorder=0)
+    ax.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2],color="r",zorder=1)
 
     ax.set_xlabel('X (km)')
     ax.set_ylabel('Y (km)')
