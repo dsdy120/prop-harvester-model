@@ -14,6 +14,9 @@ R_EARTH_KM = 6378.137  # km
 J2_EARTH = 1.08262668e-3  # J2 coefficient for Earth
 F_EARTH = 0.003352810664747480  # Flattening factor for Earth
 
+# Atmospheric parameters
+KARMAN_ALT_KM = 100.0  # km, Karman line
+
 # Simulation parameters
 TIMESTEP_SEC = 10       # Time step (s)
 SIMULATION_LIFETIME_SEC = 86400 # Simulate one day
@@ -99,9 +102,9 @@ def main():
     z = R_EARTH_KM * np.cos(v)
     ax.plot_surface(x, y, z, color="g", alpha=1, zorder=-1)  # Set alpha for transparency and zorder for layering
 
-    x = (R_EARTH_KM + 100) * np.cos(u)*np.sin(v)
-    y = (R_EARTH_KM + 100) * np.sin(u)*np.sin(v)
-    z = (R_EARTH_KM + 100) * np.cos(v)
+    x = (R_EARTH_KM + KARMAN_ALT_KM) * np.cos(u)*np.sin(v)
+    y = (R_EARTH_KM + KARMAN_ALT_KM) * np.sin(u)*np.sin(v)
+    z = (R_EARTH_KM + KARMAN_ALT_KM) * np.cos(v)
     ax.plot_surface(x, y, z, color="b", alpha=0.1, zorder=-1)  # Set alpha for transparency and zorder for layering
 
     ax.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2],color="r",zorder=1)
@@ -159,7 +162,9 @@ def main():
 
     # Plot altitude over time
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(history[:, 0], history[:, 1])
+    ax.plot(history[:, 0], history[:, 1] - R_EARTH_KM)
+    # Plot Karman Line
+    ax.axhline(y=KARMAN_ALT_KM, color='r', linestyle='--', label='Karman Line')
     ax.set_title('Altitude Over Time')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Altitude (km)')
