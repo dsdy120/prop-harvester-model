@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import nrlmsise00
 from scipy.sparse.linalg import gmres
 import orb_mech_utils
+import sys
+import json
 
 ####################
 # Constants
@@ -59,10 +61,22 @@ def rk4_step(state:np.ndarray, dt:float) -> np.ndarray:
     k4 = derivative(state + dt * k3)
     return state + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
 
-
 def main():
-    # Initial state: [p, f, g, h, k, l, mass]
-    state = np.array([[7000, 0, 0, 0, 0, 0]]).T  # 500t spacecraft
+    # Set up simulation parameters
+    cfg_file_name = sys.argv[1] if len(sys.argv) > 1 else "config.json"
+    with open(cfg_file_name) as f:
+        cfg = json.load(f)
+
+    # Load configuration parameters
+    p = cfg["p"]  # Semi-latus rectum (km)
+    f = cfg["f"]  # Equinoctial element f
+    g = cfg["g"]  # Equinoctial element g
+    h = cfg["h"]  # Equinoctial element h
+    k = cfg["k"]  # Equinoctial element k
+    l = cfg["l"]  # True longitude (rad)
+
+    # Initial state: [p, f, g, h, k, l]
+    state = np.array([[p,f,g,h,k,l]]).T  # 500t spacecraft
 
     # Store simulation history
     history = np.zeros((N_STEPS, len(state) + 1))  # +1 for time
@@ -86,8 +100,14 @@ def main():
         x, y, z = trajectory[i, :]
         lat = np.arctan2(z, np.sqrt(x**2 + y**2))
         lon = np.arctan2(y, x)
+
         ground_track_degrees[i,:] = [np.degrees(lat), np.degrees(lon)]
 
+    lon_diff = np.abs(np.diff(ground_track_degrees[:, 1]))
+    threshold = 180
+
+    # Insert NaNs where jumps occur
+    ground_track_degrees[1:][lon_diff > threshold] = np.nan
 
     # Save results
     np.savetxt("orbit_simulation.csv", history, delimiter=",", header="Time,x,y,z,vx,vy,vz,hx,hy,hz,Mass", comments="")
