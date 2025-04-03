@@ -3,3 +3,5 @@ numpy
 matplotlib
 pandas
 pykep
+nrlmsise00
+pymap3d

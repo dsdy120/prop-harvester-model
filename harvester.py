@@ -6,11 +6,13 @@ from scipy.sparse.linalg import gmres
 import orb_mech_utils
 import sys
 import json
+import pymap3d
+import datetime
 
 ####################
 # Constants
 ####################
-# Gravitational parameters for Earth from WGS84
+# Gravitational parameters for Earth from WGS84 J2000
 MU_EARTH_KM3_PER_S2 = 398600.4418  # km^3/s^2
 R_EARTH_KM = 6378.137  # km
 J2_EARTH = 1.08262668e-3  # J2 coefficient for Earth
@@ -28,8 +30,29 @@ SHAPE_STATE = (6,1)  # State vector dimension (position + velocity)
 SHAPE_PERTURBATION = (3,1)  # Perturbation dimension (e.g., atmospheric drag)
 
 # Define perturbation (extendable)
-def perturbation():
-    return np.zeros(SHAPE_PERTURBATION)  # Placeholder for perturbation vector
+def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
+    # dimension check
+    if state.shape != SHAPE_STATE:
+        raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
+    
+    # Unpack state vector
+    flat_state = state.flatten()
+    elements = flat_state[0:6]  # mod equinoctial elements
+
+    p, f, g, h, k, l = elements
+    w = orb_mech_utils.w_from_mod_equinoctial(elements)
+    s_squared = orb_mech_utils.s_squared_from_mod_equinoctial(elements)
+    r = p/w  # radius in km
+
+    perturbation_j2 = -((3*MU_EARTH_KM3_PER_S2*J2_EARTH*(R_EARTH_KM**2))/(2*(r**4)*(s_squared**2))) * np.array([[
+        (s_squared)**2 - (12*(h*np.sin(l)-k*np.cos(l))**2),
+        8*(h*np.sin(l)-k*np.cos(l))*(h*np.cos(l)+k*np.sin(l)),
+        4*(1-h**2-k**2)*(h*np.sin(l)-k*np.cos(l))
+    ]]).T
+
+    total_perturbation = perturbation_j2
+
+    return total_perturbation  # Placeholder for perturbation vector
 
 # Function computing derivatives for RK4
 def derivative(state:np.ndarray) -> np.ndarray:
@@ -43,11 +66,22 @@ def derivative(state:np.ndarray) -> np.ndarray:
 
     p, f, g, h, k, l = elements
     w = orb_mech_utils.w_from_mod_equinoctial(elements)
+    s_squared = orb_mech_utils.s_squared_from_mod_equinoctial(elements)
 
     deriv_two_body = np.array([[0, 0, 0, 0, 0, np.sqrt(MU_EARTH_KM3_PER_S2 * p)*(w/p)**2]]).T
 
+    p_r,p_t,p_n = perturbation_lvlh(state).flatten()
 
-    return np.zeros((SHAPE_STATE)) + deriv_two_body  # Placeholder for derivatives
+    deriv_perturbation_lvlh = np.array([[
+        (2*p)/w*np.sqrt(p/MU_EARTH_KM3_PER_S2)*p_t,
+        np.sqrt(p/MU_EARTH_KM3_PER_S2)*(p_r*np.sin(l) + ((w+1)*np.cos(l)+f)*p_t/w - (h*np.sin(l) - k*np.cos(l))*g*p_n/w),
+        np.sqrt(p/MU_EARTH_KM3_PER_S2)*(-p_r*np.cos(l) + ((w+1)*np.sin(l)+g)*p_t/w + (h*np.sin(l) - k*np.cos(l))*g*p_n/w),
+        np.sqrt(p/MU_EARTH_KM3_PER_S2)*(s_squared*p_n/(2*w))*np.cos(l),
+        np.sqrt(p/MU_EARTH_KM3_PER_S2)*(s_squared*p_n/(2*w))*np.sin(l),
+        np.sqrt(p*MU_EARTH_KM3_PER_S2)*(w/p)**2
+    ]]).T
+
+    return deriv_two_body + deriv_perturbation_lvlh  # Placeholder for derivatives
 
 # RK4 Integrator
 def rk4_step(state:np.ndarray, dt:float) -> np.ndarray:
@@ -68,6 +102,7 @@ def main():
         cfg = json.load(f)
 
     # Load configuration parameters
+    start_dt = datetime.datetime.fromisoformat(cfg["start_iso_dt"])
     p = cfg["p"]  # Semi-latus rectum (km)
     f = cfg["f"]  # Equinoctial element f
     g = cfg["g"]  # Equinoctial element g
@@ -89,25 +124,32 @@ def main():
 
     trajectory = np.zeros((N_STEPS, 3))
     for i in range(N_STEPS):
-        trajectory[i, :] = orb_mech_utils.mod_equinoctial_to_eci_state(
-            history[i, 1:7],  # p, f, g, h, k, l
-            mu=MU_EARTH_KM3_PER_S2
-        ).flatten()[:3]  # Convert to ECI state vector
+        try:
+            trajectory[i, :] = orb_mech_utils.mod_equinoctial_to_eci_state(
+                history[i, 1:7],  # p, f, g, h, k, l
+                mu=MU_EARTH_KM3_PER_S2
+            ).flatten()[:3]  # Convert to ECI state vector
+        except ValueError as e:
+            print(f"Error at step {i}: {e}")
+            break
 
-    ground_track_degrees = np.zeros((N_STEPS, 2))
+
+    lat_lon_alt = np.zeros((N_STEPS, 3))
     for i in range(N_STEPS):
         # Convert ECI coordinates to ground track (latitude, longitude)
-        x, y, z = trajectory[i, :]
-        lat = np.arctan2(z, np.sqrt(x**2 + y**2))
-        lon = np.arctan2(y, x)
+        x, y, z = trajectory[i, :]*1000  # Convert to meters
+        
+        lat,lon,alt = pymap3d.eci2geodetic(x, y, z, start_dt + datetime.timedelta(seconds=i*TIMESTEP_SEC),deg=True)
+        lat_lon_alt[i, 0] = lat[0]
+        lat_lon_alt[i, 1] = lon[0]
+        lat_lon_alt[i, 2] = alt[0]*0.001  # Convert to km
+        pass
 
-        ground_track_degrees[i,:] = [np.degrees(lat), np.degrees(lon)]
-
-    lon_diff = np.abs(np.diff(ground_track_degrees[:, 1]))
+    lon_diff = np.abs(np.diff(lat_lon_alt[:, 1]))
     threshold = 180
 
     # Insert NaNs where jumps occur
-    ground_track_degrees[1:][lon_diff > threshold] = np.nan
+    lat_lon_alt[1:][lon_diff > threshold,1] = np.nan
 
     # Save results
     np.savetxt("orbit_simulation.csv", history, delimiter=",", header="Time,x,y,z,vx,vy,vz,hx,hy,hz,Mass", comments="")
@@ -167,7 +209,7 @@ def main():
 
     # Plot ground track against equirectangular projection of Earth
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(ground_track_degrees[:, 1], ground_track_degrees[:, 0],color='red')
+    ax.plot(lat_lon_alt[:, 1], lat_lon_alt[:, 0],color='red')
     ax.set_title('Ground Track')
     ax.set_xlabel('Longitude (degrees)')
     ax.set_ylabel('Latitude (degrees)')
@@ -182,21 +224,12 @@ def main():
 
     # Plot altitude over time
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(history[:, 0], history[:, 1] - R_EARTH_KM)
+    ax.plot(history[:, 0], lat_lon_alt[:, 2], color='blue')
     # Plot Karman Line
     ax.axhline(y=KARMAN_ALT_KM, color='r', linestyle='--', label='Karman Line')
     ax.set_title('Altitude Over Time')
     ax.set_xlabel('Time (s)')
     ax.set_ylabel('Altitude (km)')
-    plt.grid()
-    plt.show()
-
-    # Plot velocity over time
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(history[:, 0], history[:, 2])
-    ax.set_title('Velocity Over Time')
-    ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Velocity (km/s)')
     plt.grid()
     plt.show()
 

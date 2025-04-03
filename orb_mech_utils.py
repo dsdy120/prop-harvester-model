@@ -29,12 +29,6 @@ def mod_equinoctial_to_eci_state(
     # Check for valid inputs
     if p <= 0:
         raise ValueError("Semi-latus rectum (p) must be positive.")
-    if not (-1 <= f <= 1) or not (-1 <= g <= 1):
-        raise ValueError("Equinoctial elements f and g must be in the range [-1, 1].")
-    if not (-1 <= h <= 1) or not (-1 <= k <= 1):
-        raise ValueError("Equinoctial elements h and k must be in the range [-1, 1].")
-    if not (0 <= l):
-        raise ValueError("True anomaly (l) must be in the range [0, 2*pi).")
     if mu <= 6.67e-6:
         print("Warning: Gravitational parameter (mu) is very small, check units.")
 
