@@ -78,7 +78,7 @@ def derivative(state:np.ndarray) -> np.ndarray:
         np.sqrt(p/MU_EARTH_KM3_PER_S2)*(-p_r*np.cos(l) + ((w+1)*np.sin(l)+g)*p_t/w + (h*np.sin(l) - k*np.cos(l))*g*p_n/w),
         np.sqrt(p/MU_EARTH_KM3_PER_S2)*(s_squared*p_n/(2*w))*np.cos(l),
         np.sqrt(p/MU_EARTH_KM3_PER_S2)*(s_squared*p_n/(2*w))*np.sin(l),
-        np.sqrt(p*MU_EARTH_KM3_PER_S2)*(w/p)**2
+        (1/w)*np.sqrt(p/MU_EARTH_KM3_PER_S2)*(h*np.sin(l) - k*np.cos(l))*p_n
     ]]).T
 
     return deriv_two_body + deriv_perturbation_lvlh  # Placeholder for derivatives
@@ -170,6 +170,7 @@ def main():
     ax.plot_surface(x, y, z, color="b", alpha=0.1, zorder=-1)  # Set alpha for transparency and zorder for layering
 
     ax.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2],color="r",zorder=1)
+    ax.set_aspect('equal', adjustable='box')
 
     ax.set_xlabel('X (km)')
     ax.set_ylabel('Y (km)')
