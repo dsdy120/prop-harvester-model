@@ -25,7 +25,7 @@ def mod_equinoctial_to_eci_state(
         np.ndarray: ECI state vector [x, y, z, vx, vy, vz] in km and km/s.
     """
     # unpack state vector
-    p, f, g, h, k, l = elements.flatten()[:6]
+    p, f, g, h, k, l = elements
     # Check for valid inputs
     if p <= 0:
         raise ValueError("Semi-latus rectum (p) must be positive.")
@@ -53,7 +53,7 @@ def mod_equinoctial_to_eci_state(
         h * np.cos(l) + k * np.sin(l) + f * h + g * k
     )
 
-    return np.array([rx, ry, rz, vx, vy, vz]).reshape(6, 1)  # ECI state vector
+    return np.array([rx, ry, rz, vx, vy, vz])  # ECI state vector
 
 def w_from_mod_equinoctial(elements:np.ndarray) -> float:
     """
@@ -65,7 +65,7 @@ def w_from_mod_equinoctial(elements:np.ndarray) -> float:
     Returns:
         float: w parameter.
     """
-    p, f, g, h, k, l = elements.flatten()
+    p, f, g, h, k, l = elements
     return 1 + f * np.cos(l) + g * np.sin(l)
 
 def r_from_mod_equinoctial(elements:np.ndarray) -> float:
@@ -78,7 +78,7 @@ def r_from_mod_equinoctial(elements:np.ndarray) -> float:
     Returns:
         float: Radius.
     """
-    p, f, g, h, k, l = elements.flatten()
+    p, f, g, h, k, l = elements
     w = w_from_mod_equinoctial(elements)
     return p / w
 
@@ -92,5 +92,5 @@ def s_squared_from_mod_equinoctial(elements:np.ndarray) -> float:
     Returns:
         float: s squared parameter.
     """
-    p, f, g, h, k, l = elements.flatten()
+    p, f, g, h, k, l = elements
     return 1 + h**2 + k**2

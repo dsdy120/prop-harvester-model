@@ -17,12 +17,13 @@ MU_EARTH_KM3_PER_S2 = 398600.4418  # km^3/s^2
 R_EARTH_KM = 6378.137  # km
 J2_EARTH = 1.08262668e-3  # J2 coefficient for Earth
 F_EARTH = 0.003352810664747480  # Flattening factor for Earth
+ANG_VEL_EARTH_RAD_PER_S = 7.2921159e-5  # rad/s, Earth's angular velocity
 
 # Atmospheric parameters
 KARMAN_ALT_KM = 100.0  # km, Karman line
 
-SHAPE_STATE = (6,1)  # State vector dimension (position + velocity)
-SHAPE_PERTURBATION = (3,1)  # Perturbation dimension (e.g., atmospheric drag)
+SHAPE_STATE = (18,)  # State vector dimension
+SHAPE_PERTURBATION = (3,)  # Perturbation dimension (e.g., atmospheric drag)
 
 # Define perturbation (extendable)
 def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
@@ -45,6 +46,8 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
         4*(1-h**2-k**2)*(h*np.sin(l)-k*np.cos(l))
     ]]).T
 
+    drag_perturbation = np.zeros(SHAPE_PERTURBATION)  # Placeholder for drag perturbation
+
     total_perturbation = perturbation_j2
 
     return total_perturbation  # Placeholder for perturbation vector
@@ -63,32 +66,33 @@ def derivative(state:np.ndarray) -> np.ndarray:
     w = orb_mech_utils.w_from_mod_equinoctial(elements)
     s_squared = orb_mech_utils.s_squared_from_mod_equinoctial(elements)
 
-    deriv_two_body = np.array([[0, 0, 0, 0, 0, np.sqrt(MU_EARTH_KM3_PER_S2 * p)*(w/p)**2]]).T
+    deriv_two_body = np.array([0, 0, 0, 0, 0, np.sqrt(MU_EARTH_KM3_PER_S2 * p)*(w/p)**2])
 
     p_r,p_t,p_n = perturbation_lvlh(state).flatten()
 
-    deriv_perturbation_lvlh = np.array([[
+    deriv_perturbation_lvlh = np.array([
         (2*p)/w*np.sqrt(p/MU_EARTH_KM3_PER_S2)*p_t,
         np.sqrt(p/MU_EARTH_KM3_PER_S2)*(p_r*np.sin(l) + ((w+1)*np.cos(l)+f)*p_t/w - (h*np.sin(l) - k*np.cos(l))*g*p_n/w),
         np.sqrt(p/MU_EARTH_KM3_PER_S2)*(-p_r*np.cos(l) + ((w+1)*np.sin(l)+g)*p_t/w + (h*np.sin(l) - k*np.cos(l))*g*p_n/w),
         np.sqrt(p/MU_EARTH_KM3_PER_S2)*(s_squared*p_n/(2*w))*np.cos(l),
         np.sqrt(p/MU_EARTH_KM3_PER_S2)*(s_squared*p_n/(2*w))*np.sin(l),
         (1/w)*np.sqrt(p/MU_EARTH_KM3_PER_S2)*(h*np.sin(l) - k*np.cos(l))*p_n
-    ]]).T
+    ])
 
-    return deriv_two_body + deriv_perturbation_lvlh  # Placeholder for derivatives
+    total_derivative = np.zeros(SHAPE_STATE)
+    total_derivative[:6] = deriv_two_body + deriv_perturbation_lvlh
+
+
+    return total_derivative  # Placeholder for derivatives
 
 # RK4 Integrator
-def rk4_step(state:np.ndarray, dt:float) -> np.ndarray:
-    # dimension check
-    if state.shape != SHAPE_STATE:
-        raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
+def rk4_step(integrable_state:np.ndarray, dt:float) -> np.ndarray:
 
-    k1 = derivative(state)
-    k2 = derivative(state + 0.5 * dt * k1)
-    k3 = derivative(state + 0.5 * dt * k2)
-    k4 = derivative(state + dt * k3)
-    return state + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
+    k1 = derivative(integrable_state)
+    k2 = derivative(integrable_state + 0.5 * dt * k1)
+    k3 = derivative(integrable_state + 0.5 * dt * k2)
+    k4 = derivative(integrable_state + dt * k3)
+    return integrable_state + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
 
 def main():
     # Set up simulation parameters
@@ -99,6 +103,7 @@ def main():
     # Load configuration parameters
     start_dt = datetime.datetime.fromisoformat(cfg["start_iso_dt"])
     end_dt = datetime.datetime.fromisoformat(cfg["end_iso_dt"])
+    timestep_sec = cfg["timestep_sec"]
     p = cfg["p"]  # Semi-latus rectum (km)
     f = cfg["f"]  # Equinoctial element f
     g = cfg["g"]  # Equinoctial element g
@@ -107,48 +112,99 @@ def main():
     l = cfg["l"]  # True longitude (rad)
 
     # Simulation parameters
-    TIMESTEP_SEC = 10       # Time step (s)
+    TIMESTEP_SEC = timestep_sec       # Time step (s)
     SIMULATION_LIFETIME_SEC = (end_dt - start_dt).total_seconds()
     N_STEPS = int(SIMULATION_LIFETIME_SEC / TIMESTEP_SEC)
 
     # Initial state: [p, f, g, h, k, l]
-    state = np.array([[p,f,g,h,k,l]]).T  # 500t spacecraft
+    state = np.zeros(SHAPE_STATE[0])
+    state[:6] = (p, f, g, h, k, l)  # mod equinoctial elements
 
     # Store simulation history
-    history = np.zeros((N_STEPS, len(state) + 1))  # +1 for time
+    history = np.zeros((N_STEPS, SHAPE_STATE[0]+1))  
+    # +1 for time, 
     history[:, 0] = np.arange(0, N_STEPS * TIMESTEP_SEC, TIMESTEP_SEC)
+
 
     # Run simulation
     for i in range(N_STEPS):
-        if state[0,0] < R_EARTH_KM + KARMAN_ALT_KM:
-            print("Spacecraft has reentered, stopping simulation.")
+        if i != 0 and state[14] < KARMAN_ALT_KM:
+            print("Spacecraft has re-entered the atmosphere.")
             break
-        history[i, 1:] = (state.T)[0]
-        state = rk4_step(state, TIMESTEP_SEC)
-        print(f"Step {i+1}/{N_STEPS}")
+        state = rk4_step(state, TIMESTEP_SEC).flatten()
+        elements = state[:6]  # mod equinoctial elements
+        # Non-integrated quantities
+        current_time = start_dt + datetime.timedelta(seconds=history[i, 0])
+        # ECI position and velocity
+        eci_state = orb_mech_utils.mod_equinoctial_to_eci_state(
+            elements,
+            mu=MU_EARTH_KM3_PER_S2
+        ).flatten()
+        # history[i, 7:13] = eci_state  # ECI position and velocity
+        # Geodetic position and velocity
+        geodetic_position = pymap3d.eci2geodetic(
+            eci_state[0]*1000,  # ECI position converted to meters
+            eci_state[1]*1000,
+            eci_state[2]*1000,
+            t=current_time,  # Time
+            deg=True
+        )
+        # history[i, 13] = geodetic_position[0]  # Latitude
+        # history[i, 14] = geodetic_position[1]
+        # history[i, 15] = geodetic_position[2] * 0.001
+        # Rate of change in latitude, longitude, altitude
+        ecef_position = np.array(pymap3d.eci2ecef(
+            *(eci_state[0:3]*1000),  # ECI position
+            time=current_time,  # Time
+        )).flatten()
+        ecef_velocity = eci_state[3:6] + np.cross(
+            np.array([0, 0, -ANG_VEL_EARTH_RAD_PER_S]),  # Earth's rotation rate
+            ecef_position*0.001
+        )
+        # history[i, 16:19] = ecef_velocity[0:3]  # ECEF velocity
 
-    trajectory = np.zeros((N_STEPS, 3))
-    for i in range(N_STEPS):
-        try:
-            trajectory[i, :] = orb_mech_utils.mod_equinoctial_to_eci_state(
-                history[i, 1:7],  # p, f, g, h, k, l
-                mu=MU_EARTH_KM3_PER_S2
-            ).flatten()[:3]  # Convert to ECI state vector
-        except ValueError as e:
-            print(f"Error at step {i}: {e}")
-            break
+        state = np.concatenate((
+            elements,
+            eci_state,
+            geodetic_position[0],
+            geodetic_position[1],
+            geodetic_position[2]*0.001,
+            ecef_velocity[0:3]
+        ), axis=0)  # Reshape to match SHAPE_STATE
+
+        # Store history
+        history[i, 1:] = state
+        state = state.reshape(SHAPE_STATE)  # Reshape to match SHAPE_STATE
+
+        if i % 100 == 0:
+            print(f"Step {i+1}/{N_STEPS}")
 
 
-    lat_lon_alt = np.zeros((N_STEPS, 3))
-    for i in range(N_STEPS):
-        # Convert ECI coordinates to ground track (latitude, longitude)
-        x, y, z = trajectory[i, :]*1000  # Convert to meters
+
+
+    trajectory = history[:, 7:10]  # ECI position
+    # trajectory = np.zeros((N_STEPS, 3))
+    # for i in range(N_STEPS):
+    #     try:
+    #         trajectory[i, :] = orb_mech_utils.mod_equinoctial_to_eci_state(
+    #             history[i, 1:7],  # p, f, g, h, k, l
+    #             mu=MU_EARTH_KM3_PER_S2
+    #         ).flatten()[:3]  # Convert to ECI state vector
+    #     except ValueError as e:
+    #         print(f"Error at step {i}: {e}")
+    #         break
+
+
+    lat_lon_alt = history[:, 13:16]  # Latitude, Longitude, Altitude
+    # for i in range(N_STEPS):
+    #     # Convert ECI coordinates to ground track (latitude, longitude)
+    #     x, y, z = trajectory[i, :]*1000  # Convert to meters
         
-        lat,lon,alt = pymap3d.eci2geodetic(x, y, z, start_dt + datetime.timedelta(seconds=i*TIMESTEP_SEC),deg=True)
-        lat_lon_alt[i, 0] = lat[0]
-        lat_lon_alt[i, 1] = lon[0]
-        lat_lon_alt[i, 2] = alt[0]*0.001  # Convert to km
-        pass
+    #     lat,lon,alt = pymap3d.eci2geodetic(x, y, z, start_dt + datetime.timedelta(seconds=i*TIMESTEP_SEC),deg=True)
+    #     lat_lon_alt[i, 0] = lat[0]
+    #     lat_lon_alt[i, 1] = lon[0]
+    #     lat_lon_alt[i, 2] = alt[0]*0.001  # Convert to km
+    #     pass
 
     lon_diff = np.abs(np.diff(lat_lon_alt[:, 1]))
     threshold = 180
