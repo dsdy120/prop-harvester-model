@@ -22,7 +22,7 @@ ANG_VEL_EARTH_RAD_PER_S = 7.2921159e-5  # rad/s, Earth's angular velocity
 # Atmospheric parameters
 KARMAN_ALT_KM = 100.0  # km, Karman line
 
-SHAPE_STATE = (18,)  # State vector dimension
+SHAPE_STATE = (20,)  # State vector dimension
 SHAPE_PERTURBATION = (3,)  # Perturbation dimension (e.g., atmospheric drag)
 
 # Define perturbation (extendable)
@@ -40,15 +40,17 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
     s_squared = orb_mech_utils.s_squared_from_mod_equinoctial(elements)
     r = p/w  # radius in km
 
-    perturbation_j2 = -((3*MU_EARTH_KM3_PER_S2*J2_EARTH*(R_EARTH_KM**2))/(2*(r**4)*(s_squared**2))) * np.array([[
+    perturbation_j2 = -((3*MU_EARTH_KM3_PER_S2*J2_EARTH*(R_EARTH_KM**2))/(2*(r**4)*(s_squared**2))) \
+    * np.array([
         (s_squared)**2 - (12*(h*np.sin(l)-k*np.cos(l))**2),
         8*(h*np.sin(l)-k*np.cos(l))*(h*np.cos(l)+k*np.sin(l)),
         4*(1-h**2-k**2)*(h*np.sin(l)-k*np.cos(l))
-    ]]).T
+    ])
 
+    # species_density = nrlmsise00.msise_model()
     drag_perturbation = np.zeros(SHAPE_PERTURBATION)  # Placeholder for drag perturbation
 
-    total_perturbation = perturbation_j2
+    total_perturbation = perturbation_j2 + drag_perturbation
 
     return total_perturbation  # Placeholder for perturbation vector
 
@@ -68,7 +70,7 @@ def derivative(state:np.ndarray) -> np.ndarray:
 
     deriv_two_body = np.array([0, 0, 0, 0, 0, np.sqrt(MU_EARTH_KM3_PER_S2 * p)*(w/p)**2])
 
-    p_r,p_t,p_n = perturbation_lvlh(state).flatten()
+    p_r,p_t,p_n = perturbation_lvlh(state)
 
     deriv_perturbation_lvlh = np.array([
         (2*p)/w*np.sqrt(p/MU_EARTH_KM3_PER_S2)*p_t,
@@ -136,45 +138,58 @@ def main():
         # Non-integrated quantities
         current_time = start_dt + datetime.timedelta(seconds=history[i, 0])
         # ECI position and velocity
-        eci_state = orb_mech_utils.mod_equinoctial_to_eci_state(
+        eci_state_km = orb_mech_utils.mod_equinoctial_to_eci_state(
             elements,
             mu=MU_EARTH_KM3_PER_S2
         ).flatten()
         # history[i, 7:13] = eci_state  # ECI position and velocity
         # Geodetic position and velocity
-        geodetic_position = pymap3d.eci2geodetic(
-            eci_state[0]*1000,  # ECI position converted to meters
-            eci_state[1]*1000,
-            eci_state[2]*1000,
+        lat_deg,lon_deg,alt_km = pymap3d.eci2geodetic(
+            eci_state_km[0]*1000,  # ECI position converted to meters
+            eci_state_km[1]*1000,
+            eci_state_km[2]*1000,
             t=current_time,  # Time
             deg=True
         )
-        # history[i, 13] = geodetic_position[0]  # Latitude
-        # history[i, 14] = geodetic_position[1]
-        # history[i, 15] = geodetic_position[2] * 0.001
+        alt_km *= 0.001  # Convert to km
+
         # Rate of change in latitude, longitude, altitude
-        ecef_position = np.array(pymap3d.eci2ecef(
-            *(eci_state[0:3]*1000),  # ECI position
+        ecef_position_km = np.array(pymap3d.eci2ecef(
+            *(eci_state_km[0:3]*1000),  # ECI position converted to meters
             time=current_time,  # Time
-        )).flatten()
-        ecef_velocity = eci_state[3:6] + np.cross(
+        )).flatten()*0.001
+        ecef_velocity_km_per_s = eci_state_km[3:6] + np.cross(
             np.array([0, 0, -ANG_VEL_EARTH_RAD_PER_S]),  # Earth's rotation rate
-            ecef_position*0.001
+            ecef_position_km
         )
         # history[i, 16:19] = ecef_velocity[0:3]  # ECEF velocity
+        
+        species_density_per_m3 = nrlmsise00.msise_model(
+            current_time,
+            alt_km,
+            lat_deg,
+            lon_deg,
+            150, #TODO: Implement solar activity
+            150, #TODO: Implement solar activity
+            4,
+            flags=[1]*24
+        )
+
+        atmospheric_mass_density_kg_per_m3 = species_density_per_m3[0][5]
+        velocity_magnitude_km_per_s = np.linalg.norm(ecef_velocity_km_per_s[0:3])
 
         state = np.concatenate((
             elements,
-            eci_state,
-            geodetic_position[0],
-            geodetic_position[1],
-            geodetic_position[2]*0.001,
-            ecef_velocity[0:3]
-        ), axis=0)  # Reshape to match SHAPE_STATE
+            eci_state_km,
+            lat_deg,
+            lon_deg,
+            alt_km,
+            ecef_velocity_km_per_s[0:3],
+            np.array([velocity_magnitude_km_per_s,atmospheric_mass_density_kg_per_m3]),
+        ), axis=0)
 
         # Store history
         history[i, 1:] = state
-        state = state.reshape(SHAPE_STATE)  # Reshape to match SHAPE_STATE
 
         if i % 100 == 0:
             print(f"Step {i+1}/{N_STEPS}")
