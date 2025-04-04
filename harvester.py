@@ -39,11 +39,8 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
     s_squared = orb_mech_utils.s_squared_from_mod_equinoctial(elements)
     r = p/w  # radius in km
 
-    perturbation_j2_km_per_s2 = -((3*MU_EARTH_KM3_PER_S2*J2_EARTH*(R_EARTH_KM**2))/(2*(r**4)*(s_squared**2))) \
-    * np.array([
-        (s_squared)**2 - (12*(h*np.sin(l)-k*np.cos(l))**2),
-        8*(h*np.sin(l)-k*np.cos(l))*(h*np.cos(l)+k*np.sin(l)),
-        4*(1-h**2-k**2)*(h*np.sin(l)-k*np.cos(l))
+    perturbation_j2_km_per_s2 = np.array([
+        -3/2 * J2_EARTH * MU_EARTH_KM3_PER_S2 * (R_EARTH_KM/r)**2 * (1 - 12*(h*np.sin(l) - k*np.cos(l)))
     ])
 
     atmospheric_momentum_flux_Pa = state[20:23]  # Atmospheric momentum flux in Pa
@@ -62,7 +59,8 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
 
     # print((drag_perturbation_km_per_s2))
 
-    total_perturbation = perturbation_j2_km_per_s2 #+ drag_perturbation_km_per_s2
+    total_perturbation = np.zeros(SHAPE_PERTURBATION)
+    # total_perturbation += perturbation_j2_km_per_s2 #+ drag_perturbation_km_per_s2
 
     return total_perturbation  # Placeholder for perturbation vector
 
@@ -154,6 +152,10 @@ def main():
             elements,
             mu=MU_EARTH_KM3_PER_S2
         ).flatten()
+
+        spec_energy = 0.5 * np.linalg.norm(eci_state_km[3:6])**2 - MU_EARTH_KM3_PER_S2 / np.linalg.norm(eci_state_km[0:3])
+        print(spec_energy)
+
         # history[i, 7:13] = eci_state  # ECI position and velocity
         # Geodetic position and velocity
         lat_deg,lon_deg,alt_km = pymap3d.eci2geodetic(
@@ -216,8 +218,8 @@ def main():
         # Store history
         history[i, 1:] = state
 
-        if i % 100 == 0:
-            print(f"Step {i+1}/{N_STEPS}")
+        # if i % 100 == 0:
+        #     print(f"Step {i+1}/{N_STEPS}")
 
 
 
