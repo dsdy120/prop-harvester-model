@@ -176,7 +176,7 @@ def main():
         )
 
         atmospheric_mass_density_kg_per_m3 = species_density_per_m3[0][5]
-        velocity_magnitude_km_per_s = np.linalg.norm(ecef_velocity_km_per_s[0:3])
+        airspeed_km_per_s = np.linalg.norm(ecef_velocity_km_per_s[0:3])
 
         state = np.concatenate((
             elements,
@@ -185,7 +185,7 @@ def main():
             lon_deg,
             alt_km,
             ecef_velocity_km_per_s[0:3],
-            np.array([velocity_magnitude_km_per_s,atmospheric_mass_density_kg_per_m3]),
+            np.array([airspeed_km_per_s,atmospheric_mass_density_kg_per_m3]),
         ), axis=0)
 
         # Store history
