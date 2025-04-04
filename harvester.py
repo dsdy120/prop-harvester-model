@@ -21,11 +21,6 @@ F_EARTH = 0.003352810664747480  # Flattening factor for Earth
 # Atmospheric parameters
 KARMAN_ALT_KM = 100.0  # km, Karman line
 
-# Simulation parameters
-TIMESTEP_SEC = 10       # Time step (s)
-SIMULATION_LIFETIME_SEC = 86400 # Simulate one day
-N_STEPS = int(SIMULATION_LIFETIME_SEC / TIMESTEP_SEC)
-
 SHAPE_STATE = (6,1)  # State vector dimension (position + velocity)
 SHAPE_PERTURBATION = (3,1)  # Perturbation dimension (e.g., atmospheric drag)
 
@@ -103,6 +98,7 @@ def main():
 
     # Load configuration parameters
     start_dt = datetime.datetime.fromisoformat(cfg["start_iso_dt"])
+    end_dt = datetime.datetime.fromisoformat(cfg["end_iso_dt"])
     p = cfg["p"]  # Semi-latus rectum (km)
     f = cfg["f"]  # Equinoctial element f
     g = cfg["g"]  # Equinoctial element g
@@ -110,17 +106,26 @@ def main():
     k = cfg["k"]  # Equinoctial element k
     l = cfg["l"]  # True longitude (rad)
 
+    # Simulation parameters
+    TIMESTEP_SEC = 10       # Time step (s)
+    SIMULATION_LIFETIME_SEC = (end_dt - start_dt).total_seconds()
+    N_STEPS = int(SIMULATION_LIFETIME_SEC / TIMESTEP_SEC)
+
     # Initial state: [p, f, g, h, k, l]
     state = np.array([[p,f,g,h,k,l]]).T  # 500t spacecraft
 
     # Store simulation history
     history = np.zeros((N_STEPS, len(state) + 1))  # +1 for time
-    history[:, 0] = np.arange(0, SIMULATION_LIFETIME_SEC, TIMESTEP_SEC)
+    history[:, 0] = np.arange(0, N_STEPS * TIMESTEP_SEC, TIMESTEP_SEC)
 
     # Run simulation
     for i in range(N_STEPS):
+        if state[0,0] < R_EARTH_KM + KARMAN_ALT_KM:
+            print("Spacecraft has reentered, stopping simulation.")
+            break
         history[i, 1:] = (state.T)[0]
         state = rk4_step(state, TIMESTEP_SEC)
+        print(f"Step {i+1}/{N_STEPS}")
 
     trajectory = np.zeros((N_STEPS, 3))
     for i in range(N_STEPS):
