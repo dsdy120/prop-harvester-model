@@ -22,7 +22,7 @@ ANG_VEL_EARTH_RAD_PER_S = 7.2921159e-5  # rad/s, Earth's angular velocity
 # Atmospheric parameters
 KARMAN_ALT_KM = 100.0  # km, Karman line
 
-SHAPE_STATE = (20,)  # State vector dimension
+SHAPE_STATE = (32,)  # State vector dimension
 SHAPE_PERTURBATION = (3,)  # Perturbation dimension (e.g., atmospheric drag)
 
 # Define perturbation (extendable)
@@ -32,33 +32,37 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
         raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
     
     # Unpack state vector
-    flat_state = state.flatten()
-    elements = flat_state[0:6]  # mod equinoctial elements
+    elements = state[0:6]  # mod equinoctial elements
 
     p, f, g, h, k, l = elements
     w = orb_mech_utils.w_from_mod_equinoctial(elements)
     s_squared = orb_mech_utils.s_squared_from_mod_equinoctial(elements)
     r = p/w  # radius in km
 
-    perturbation_j2 = -((3*MU_EARTH_KM3_PER_S2*J2_EARTH*(R_EARTH_KM**2))/(2*(r**4)*(s_squared**2))) \
+    perturbation_j2_km_per_s2 = -((3*MU_EARTH_KM3_PER_S2*J2_EARTH*(R_EARTH_KM**2))/(2*(r**4)*(s_squared**2))) \
     * np.array([
         (s_squared)**2 - (12*(h*np.sin(l)-k*np.cos(l))**2),
         8*(h*np.sin(l)-k*np.cos(l))*(h*np.cos(l)+k*np.sin(l)),
         4*(1-h**2-k**2)*(h*np.sin(l)-k*np.cos(l))
     ])
 
-    atmospheric_mass_density_kg_per_km3 = state[16]*1e-9  # Atmospheric density in kg/m^3
-    airspeed_km_per_s = state[17]  # Velocity in km/s
-    effective_drag_area_m2 = 3.0 #TODO: Implement effective drag area, mass and attitude
+    atmospheric_momentum_flux_Pa = state[20:23]  # Atmospheric momentum flux in Pa
+    effective_drag_area_m2 = 1 #TODO: Implement effective drag area, mass and attitude
+    mass_kg = 100
+    lvlh_unit_r = state[23:26]  # Unit vector in radial direction
+    lvlh_unit_t = state[26:29]  # Unit vector in tangential direction
+    lvlh_unit_n = state[29:32]  # Unit vector in normal direction
 
     # species_density = nrlmsise00.msise_model()
-    drag_perturbation = -0.5*atmospheric_mass_density_kg_per_km3*airspeed_km_per_s*effective_drag_area_m2*np.array([
-        np.sqrt(MU_EARTH_KM3_PER_S2/p)*(f*np.sin(l)-g*np.cos(l)),  # Drag in x direction
-        np.sqrt(MU_EARTH_KM3_PER_S2/p)*(1+f*np.cos(l)+g*np.sin(l)),  # Drag in y direction
-        0
-    ])
+    drag_perturbation_km_per_s2 = (effective_drag_area_m2/mass_kg)*np.array([
+        np.dot(atmospheric_momentum_flux_Pa,lvlh_unit_r),  # Drag in x direction
+        np.dot(atmospheric_momentum_flux_Pa,lvlh_unit_t),  # Drag in y direction
+        np.dot(atmospheric_momentum_flux_Pa,lvlh_unit_n)   # Drag in z direction
+    ])*0.001
 
-    total_perturbation = perturbation_j2 + drag_perturbation
+    # print((drag_perturbation_km_per_s2))
+
+    total_perturbation = perturbation_j2_km_per_s2 #+ drag_perturbation_km_per_s2
 
     return total_perturbation  # Placeholder for perturbation vector
 
@@ -170,7 +174,7 @@ def main():
             np.array([0, 0, -ANG_VEL_EARTH_RAD_PER_S]),  # Earth's rotation rate
             ecef_position_km
         )
-        # history[i, 16:19] = ecef_velocity[0:3]  # ECEF velocity
+        # print(np.dot(ecef_velocity_km_per_s, eci_state_km[3:6])/(np.linalg.norm(ecef_velocity_km_per_s)*np.linalg.norm(eci_state_km[3:6])))
         
         species_density_per_m3 = nrlmsise00.msise_model(
             current_time,
@@ -183,8 +187,17 @@ def main():
             flags=[1]*24
         )
 
-        atmospheric_mass_density_kg_per_m3 = species_density_per_m3[0][5]
+        atmospheric_mass_density_kg_per_m3:float = species_density_per_m3[0][5]
         airspeed_km_per_s = np.linalg.norm(ecef_velocity_km_per_s[0:3])
+
+        atmospheric_momentum_flux_Pa = -0.5 * atmospheric_mass_density_kg_per_m3 * 0.001 * airspeed_km_per_s * 0.001 * ecef_velocity_km_per_s
+        # print(np.dot(atmospheric_momentum_flux_Pa, ecef_velocity_km_per_s)/(np.linalg.norm(atmospheric_momentum_flux_Pa)*np.linalg.norm(ecef_velocity_km_per_s)))
+
+        eci_unit_r = eci_state_km[0:3] / np.linalg.norm(eci_state_km[0:3])
+        eci_unit_v = eci_state_km[3:6] / np.linalg.norm(eci_state_km[3:6])
+        eci_unit_n = np.cross(eci_unit_r, eci_unit_v)
+        eci_unit_t = np.cross(eci_unit_n, eci_unit_r)
+        # print(np.dot(eci_unit_v,eci_unit_t))
 
         state = np.concatenate((
             elements,
@@ -194,6 +207,10 @@ def main():
             alt_km,
             ecef_velocity_km_per_s[0:3],
             np.array([airspeed_km_per_s,atmospheric_mass_density_kg_per_m3]),
+            atmospheric_momentum_flux_Pa,
+            eci_unit_r,
+            eci_unit_t,
+            eci_unit_n,
         ), axis=0)
 
         # Store history
