@@ -47,8 +47,16 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
         4*(1-h**2-k**2)*(h*np.sin(l)-k*np.cos(l))
     ])
 
+    atmospheric_mass_density_kg_per_km3 = state[16]*1e-9  # Atmospheric density in kg/m^3
+    airspeed_km_per_s = state[17]  # Velocity in km/s
+    effective_drag_area_m2 = 3.0 #TODO: Implement effective drag area, mass and attitude
+
     # species_density = nrlmsise00.msise_model()
-    drag_perturbation = np.zeros(SHAPE_PERTURBATION)  # Placeholder for drag perturbation
+    drag_perturbation = -0.5*atmospheric_mass_density_kg_per_km3*airspeed_km_per_s*effective_drag_area_m2*np.array([
+        np.sqrt(MU_EARTH_KM3_PER_S2/p)*(f*np.sin(l)-g*np.cos(l)),  # Drag in x direction
+        np.sqrt(MU_EARTH_KM3_PER_S2/p)*(1+f*np.cos(l)+g*np.sin(l)),  # Drag in y direction
+        0
+    ])
 
     total_perturbation = perturbation_j2 + drag_perturbation
 
