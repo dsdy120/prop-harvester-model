@@ -40,12 +40,14 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
     r = p/w  # radius in km
 
     perturbation_j2_km_per_s2 = np.array([
-        -3/2 * J2_EARTH * MU_EARTH_KM3_PER_S2 * (R_EARTH_KM/r)**2 * (1 - 12*(h*np.sin(l) - k*np.cos(l)))
+        -3/2 * J2_EARTH * MU_EARTH_KM3_PER_S2 * (R_EARTH_KM/(r**2))**2 * (1 - 12*(h*np.sin(l) - k*np.cos(l))**2/(1 + h**2 + k**2)**2),
+        -12 * J2_EARTH * MU_EARTH_KM3_PER_S2 * (R_EARTH_KM/(r**2))**2 * (h*np.sin(l) - k*np.cos(l))*(h*np.cos(l) + k*np.sin(l))/(1 + h**2 + k**2)**2,
+        -6 * J2_EARTH * MU_EARTH_KM3_PER_S2 * (R_EARTH_KM/(r**2))**2 * (1 - h**2 - k**2) * (h*np.sin(l) - k*np.cos(l))/(1 + h**2 + k**2)**2
     ])
 
     atmospheric_momentum_flux_Pa = state[20:23]  # Atmospheric momentum flux in Pa
-    effective_drag_area_m2 = 1 #TODO: Implement effective drag area, mass and attitude
-    mass_kg = 100
+    effective_drag_area_m2 = 50 #TODO: Implement effective drag area, mass and attitude
+    mass_kg = 100000
     lvlh_unit_r = state[23:26]  # Unit vector in radial direction
     lvlh_unit_t = state[26:29]  # Unit vector in tangential direction
     lvlh_unit_n = state[29:32]  # Unit vector in normal direction
@@ -59,8 +61,8 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
 
     # print((drag_perturbation_km_per_s2))
 
-    total_perturbation = np.zeros(SHAPE_PERTURBATION)
-    # total_perturbation += perturbation_j2_km_per_s2 #+ drag_perturbation_km_per_s2
+    # total_perturbation = np.zeros(SHAPE_PERTURBATION)
+    total_perturbation = perturbation_j2_km_per_s2 + drag_perturbation_km_per_s2
 
     return total_perturbation  # Placeholder for perturbation vector
 
@@ -140,8 +142,11 @@ def main():
 
     # Run simulation
     for i in range(N_STEPS):
-        if i != 0 and state[14] < KARMAN_ALT_KM:
-            print("Spacecraft has re-entered the atmosphere.")
+        if i % (N_STEPS/100) == 0:
+            print(f"Step {i}/{N_STEPS}")
+
+        if i != 0 and state[14] < 0.5 * KARMAN_ALT_KM:
+            print("Spacecraft has reentered the atmosphere.")
             break
         state = rk4_step(state, TIMESTEP_SEC).flatten()
         elements = state[:6]  # mod equinoctial elements
@@ -153,8 +158,8 @@ def main():
             mu=MU_EARTH_KM3_PER_S2
         ).flatten()
 
-        spec_energy = 0.5 * np.linalg.norm(eci_state_km[3:6])**2 - MU_EARTH_KM3_PER_S2 / np.linalg.norm(eci_state_km[0:3])
-        print(spec_energy)
+        # spec_energy = 0.5 * np.linalg.norm(eci_state_km[3:6])**2 - MU_EARTH_KM3_PER_S2 / np.linalg.norm(eci_state_km[0:3])
+        # print(spec_energy)
 
         # history[i, 7:13] = eci_state  # ECI position and velocity
         # Geodetic position and velocity
@@ -192,7 +197,7 @@ def main():
         atmospheric_mass_density_kg_per_m3:float = species_density_per_m3[0][5]
         airspeed_km_per_s = np.linalg.norm(ecef_velocity_km_per_s[0:3])
 
-        atmospheric_momentum_flux_Pa = -0.5 * atmospheric_mass_density_kg_per_m3 * 0.001 * airspeed_km_per_s * 0.001 * ecef_velocity_km_per_s
+        atmospheric_momentum_flux_Pa = -0.5 * atmospheric_mass_density_kg_per_m3 * 1000 * airspeed_km_per_s * 1000 * ecef_velocity_km_per_s
         # print(np.dot(atmospheric_momentum_flux_Pa, ecef_velocity_km_per_s)/(np.linalg.norm(atmospheric_momentum_flux_Pa)*np.linalg.norm(ecef_velocity_km_per_s)))
 
         eci_unit_r = eci_state_km[0:3] / np.linalg.norm(eci_state_km[0:3])
@@ -217,9 +222,6 @@ def main():
 
         # Store history
         history[i, 1:] = state
-
-        # if i % 100 == 0:
-        #     print(f"Step {i+1}/{N_STEPS}")
 
 
 
