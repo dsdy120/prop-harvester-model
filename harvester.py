@@ -30,7 +30,7 @@ INTEGRABLE_STATE                        = (0, 50)
 
 MOD_EQUINOCTIAL_ELEMENTS                = (0, 6)
 PROPELLANT_MASS_KG                      = (6, 7)
-TAILING_MASS                            = (7, 8)
+TAILING_MASS_KG                            = (7, 8)
 
 
 INSTANTANEOUS_STATE                     = (50, 150)
@@ -46,15 +46,17 @@ ATMOSPHERIC_MOMENTUM_FLUX               = (64, 67)
 ECI_UNIT_R                              = (67, 70)
 ECI_UNIT_T                              = (70, 73)
 ECI_UNIT_N                              = (73, 76)
-CONDENSATE_PROPULSIVE_FRACTION          = (76, 77)
-SCOOP_THROTTLE                          = (77, 78)
-ANGLE_OF_ATTACK                         = (78, 79)
-LVLH_RPY                                = (79, 82)
-ECI_BODY_RATES                          = (82, 85)
-ECI_NET_BODY_TORQUES                    = (85, 88)
-MASS_COLLECTION_RATE_KG_S               = (88, 89)
-PROPELLANT_COLLECTION_RATE_KG_S         = (89, 90)
-TAILINGS_COLLECTION_RATE_KG_S           = (90, 91)
+DRAG_PERTURBATION_KM_PER_S2             = (76, 79)
+CONDENSATE_PROPULSIVE_FRACTION          = (79, 80)
+SCOOP_THROTTLE                          = (80, 81)
+ANGLE_OF_ATTACK                         = (81, 82)
+LVLH_QUATERNION                         = (82, 86)
+ECI_BODY_RATES                          = (86, 89)
+ECI_NET_BODY_TORQUES                    = (89, 92)
+MASS_COLLECTION_RATE_KG_S               = (92, 95)
+PROPELLANT_COLLECTION_RATE_KG_S         = (95, 98)
+TAILINGS_COLLECTION_RATE_KG_S           = (98, 101)
+TOTAL_MASS_KG                           = (101, 102)
 
 
 SHAPE_PERTURBATION = (3,)  # Perturbation dimension (e.g., atmospheric drag)
@@ -86,11 +88,7 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
     lvlh_unit_n = state[ECI_UNIT_N[0]:ECI_UNIT_N[1]]  # Unit vector in normal direction
 
 
-    drag_perturbation_km_per_s2 = (effective_drag_area_m2/mass_kg)*np.array([
-        np.dot(atmospheric_momentum_flux_Pa,lvlh_unit_r),  # Drag in x direction
-        np.dot(atmospheric_momentum_flux_Pa,lvlh_unit_t),  # Drag in y direction
-        np.dot(atmospheric_momentum_flux_Pa,lvlh_unit_n)   # Drag in z direction
-    ])*0.001
+    drag_perturbation_km_per_s2 = state[DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]]  # Drag perturbation in km/s^2
 
     # print(atmospheric_momentum_flux_Pa)
     # print((drag_perturbation_km_per_s2))
@@ -254,6 +252,19 @@ def main():
         state[ECI_UNIT_R[0]:ECI_UNIT_R[1]] = eci_unit_r  # ECI unit vector in radial direction
         state[ECI_UNIT_T[0]:ECI_UNIT_T[1]] = eci_unit_t  # ECI unit vector in tangential direction
         state[ECI_UNIT_N[0]:ECI_UNIT_N[1]] = eci_unit_n  # ECI unit vector in normal direction
+
+        # Drag perturbation
+        effective_drag_area_m2 = 50 #TODO: Implement effective drag area, mass and attitude
+        total_mass_kg = DRY_MASS_KG + state[PROPELLANT_MASS_KG[0]] + state[TAILING_MASS_KG[0]]
+        state[TOTAL_MASS_KG[0]:TOTAL_MASS_KG[1]] = total_mass_kg
+
+        drag_perturbation_km_per_s2 = (effective_drag_area_m2/total_mass_kg)*np.array([
+            np.dot(atmospheric_momentum_flux_Pa,eci_unit_r),  # Drag in x direction
+            np.dot(atmospheric_momentum_flux_Pa,eci_unit_t),  # Drag in y direction
+            np.dot(atmospheric_momentum_flux_Pa,eci_unit_n)   # Drag in z direction
+        ])*0.001
+        state[DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]] = drag_perturbation_km_per_s2  # Drag perturbation
+
 
         # Store history
         history[i, 1:(len(state)+1)] = state
