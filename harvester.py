@@ -28,7 +28,8 @@ SHAPE_STATE = (100,)  # State vector dimension
 # State vector indices, inclusive start and exclusive end
 INTEGRABLE_STATE_START_STOP_INDEX = (0, 50)
 MOD_EQUINOCTIAL_START_STOP_INDEX = (0, 6)
-TANK_FILL_STATE_START_STOP_INDEX = (6, 7)
+PROPELLANT_MASS_START_STOP_INDEX = (6, 7)
+TAILING_MASS_START_STOP_INDEX = (7, 8)
 
 INSTANTANEOUS_STATE_START_STOP_INDEX = (50, 100)
 ECI_STATE_START_STOP_INDEX = (50, 56)
@@ -42,7 +43,12 @@ ATMOSPHERIC_MOMENTUM_FLUX_START_STOP_INDEX = (64, 67)
 ECI_UNIT_R_START_STOP_INDEX = (67, 70)
 ECI_UNIT_T_START_STOP_INDEX = (70, 73)
 ECI_UNIT_N_START_STOP_INDEX = (73, 76)
-
+CONDENSATE_PROPULSIVE_FRACTION_START_STOP_INDEX = (76, 77)
+SCOOP_THROTTLE_START_STOP_INDEX = (77, 78)
+ANGLE_OF_ATTACK_START_STOP_INDEX = (78, 79)
+LVLH_RPY_START_STOP_INDEX = (79, 82)
+ECI_BODY_RATES_START_STOP_INDEX = (82, 85)
+ECI_NET_BODY_TORQUES_START_STOP_INDEX = (85, 88)
 
 SHAPE_PERTURBATION = (3,)  # Perturbation dimension (e.g., atmospheric drag)
 
@@ -80,7 +86,7 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
     ])*0.001
 
     # print(atmospheric_momentum_flux_Pa)
-    print((drag_perturbation_km_per_s2))
+    # print((drag_perturbation_km_per_s2))
 
     # total_perturbation = np.zeros(SHAPE_PERTURBATION)
     total_perturbation = perturbation_j2_km_per_s2 + drag_perturbation_km_per_s2
@@ -145,6 +151,10 @@ def main():
     h = cfg["h"]  # Equinoctial element h
     k = cfg["k"]  # Equinoctial element k
     l = cfg["l"]  # True longitude (rad)
+
+    DRY_MASS_KG = cfg["dry_mass_tons"]*1000  # Dry mass (tons)
+    MAX_PROPELLANT_MASS_KG = cfg["max_propellant_mass_tons"]*1000  # Max propellant mass (tons)
+    MAX_TAILINGS_MASS_KG = cfg["max_tailings_mass_tons"]*1000  # Max tailings mass (tons)
 
     # Simulation parameters
     TIMESTEP_SEC = timestep_sec       # Time step (s)
@@ -275,7 +285,7 @@ def main():
     lat_lon_alt[1:][lon_diff > threshold,1] = np.nan
 
     # Save results
-    np.savetxt("orbit_simulation.csv", history, delimiter=",", header="Time,x,y,z,vx,vy,vz,hx,hy,hz,Mass", comments="")
+    np.savetxt("orbit_simulation.csv", history, delimiter=",", comments="")
 
 
     # Plot trajectory in 3D
