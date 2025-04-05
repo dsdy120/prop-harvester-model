@@ -85,7 +85,6 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
     lvlh_unit_t = state[ECI_UNIT_T[0]:ECI_UNIT_T[1]]  # Unit vector in tangential direction
     lvlh_unit_n = state[ECI_UNIT_N[0]:ECI_UNIT_N[1]]  # Unit vector in normal direction
 
-
     drag_perturbation_km_per_s2 = (effective_drag_area_m2/mass_kg)*np.array([
         np.dot(atmospheric_momentum_flux_Pa,lvlh_unit_r),  # Drag in x direction
         np.dot(atmospheric_momentum_flux_Pa,lvlh_unit_t),  # Drag in y direction
@@ -189,6 +188,7 @@ def main():
             break
         state = rk4_step(state, TIMESTEP_SEC).flatten()
         elements = state[:6]  # mod equinoctial elements
+        mass = state[6]  # Mass (kg)
         # Non-integrated quantities
         current_time = start_dt + datetime.timedelta(seconds=history[i, 0])
         # ECI position and velocity
