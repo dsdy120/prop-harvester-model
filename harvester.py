@@ -70,7 +70,6 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
 
     p, f, g, h, k, l = elements
     w = orb_mech_utils.w_from_mod_equinoctial(elements)
-    s_squared = orb_mech_utils.s_squared_from_mod_equinoctial(elements)
     r = p/w  # radius in km
 
     perturbation_j2_km_per_s2 = np.array([
@@ -79,12 +78,13 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
         -6 * J2_EARTH * MU_EARTH_KM3_PER_S2 * (R_EARTH_KM/(r**2))**2 * (1 - h**2 - k**2) * (h*np.sin(l) - k*np.cos(l))/(1 + h**2 + k**2)**2
     ])
 
-    atmospheric_momentum_flux_Pa = state[20:23]  # Atmospheric momentum flux in Pa
+    atmospheric_momentum_flux_Pa = state[ATMOSPHERIC_MOMENTUM_FLUX[0]:ATMOSPHERIC_MOMENTUM_FLUX[1]]  # Atmospheric momentum flux in Pa
     effective_drag_area_m2 = 50 #TODO: Implement effective drag area, mass and attitude
     mass_kg = 100000
-    lvlh_unit_r = state[23:26]  # Unit vector in radial direction
-    lvlh_unit_t = state[26:29]  # Unit vector in tangential direction
-    lvlh_unit_n = state[29:32]  # Unit vector in normal direction
+    lvlh_unit_r = state[ECI_UNIT_R[0]:ECI_UNIT_R[1]]  # Unit vector in radial direction
+    lvlh_unit_t = state[ECI_UNIT_T[0]:ECI_UNIT_T[1]]  # Unit vector in tangential direction
+    lvlh_unit_n = state[ECI_UNIT_N[0]:ECI_UNIT_N[1]]  # Unit vector in normal direction
+
 
     drag_perturbation_km_per_s2 = (effective_drag_area_m2/mass_kg)*np.array([
         np.dot(atmospheric_momentum_flux_Pa,lvlh_unit_r),  # Drag in x direction
@@ -92,6 +92,7 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
         np.dot(atmospheric_momentum_flux_Pa,lvlh_unit_n)   # Drag in z direction
     ])*0.001
 
+    # print(atmospheric_momentum_flux_Pa)
     # print((drag_perturbation_km_per_s2))
 
     # total_perturbation = np.zeros(SHAPE_PERTURBATION)
@@ -113,7 +114,8 @@ def derivative(state:np.ndarray) -> np.ndarray:
     w = orb_mech_utils.w_from_mod_equinoctial(elements)
     s_squared = orb_mech_utils.s_squared_from_mod_equinoctial(elements)
 
-    deriv_two_body = np.array([0, 0, 0, 0, 0, np.sqrt(MU_EARTH_KM3_PER_S2 * p)*(w/p)**2])
+    deriv_two_body = np.zeros(SHAPE_STATE)
+    deriv_two_body[5] = np.sqrt(MU_EARTH_KM3_PER_S2 * p)*(w/p)**2
 
     p_r,p_t,p_n = perturbation_lvlh(state)
 
@@ -124,12 +126,10 @@ def derivative(state:np.ndarray) -> np.ndarray:
         np.sqrt(p/MU_EARTH_KM3_PER_S2)*(-p_r*np.cos(l) + ((w+1)*np.sin(l)+g)*p_t/w + (h*np.sin(l) - k*np.cos(l))*g*p_n/w),
         np.sqrt(p/MU_EARTH_KM3_PER_S2)*(s_squared*p_n/(2*w))*np.cos(l),
         np.sqrt(p/MU_EARTH_KM3_PER_S2)*(s_squared*p_n/(2*w))*np.sin(l),
-        (1/w)*np.sqrt(p/MU_EARTH_KM3_PER_S2)*(h*np.sin(l) - k*np.cos(l))*p_n
-    ])
+        (1/w)*np.sqrt(p/MU_EARTH_KM3_PER_S2)*(h*np.sin(l) - k*np.cos(l))*p_n,
+    ]
 
-    total_derivative = np.zeros(SHAPE_STATE)
-    total_derivative[:6] = deriv_two_body + deriv_perturbation_lvlh
-
+    total_derivative = deriv_two_body + deriv_perturbation_lvlh
 
     return total_derivative  # Placeholder for derivatives
 
@@ -184,12 +184,11 @@ def main():
         if i % (N_STEPS/100) == 0:
             print(f"Step {i}/{N_STEPS}")
 
-        if i != 0 and state[14] < 0.5 * KARMAN_ALT_KM:
+        if i != 0 and state[ALT[0]] < 0.5 * KARMAN_ALT_KM:
             print("Spacecraft has reentered the atmosphere.")
             break
         state = rk4_step(state, TIMESTEP_SEC).flatten()
         elements = state[:6]  # mod equinoctial elements
-        mass = state[6]  # Mass (kg)
         # Non-integrated quantities
         current_time = start_dt + datetime.timedelta(seconds=history[i, 0])
         # ECI position and velocity
@@ -252,20 +251,9 @@ def main():
         eci_unit_n = np.cross(eci_unit_r, eci_unit_v)
         eci_unit_t = np.cross(eci_unit_n, eci_unit_r)
         # print(np.dot(eci_unit_v,eci_unit_t))
-
-        state = np.concatenate((
-            elements,
-            eci_state_km,
-            lat_deg,
-            lon_deg,
-            alt_km,
-            ecef_velocity_km_per_s[0:3],
-            np.array([airspeed_km_per_s,atmospheric_mass_density_kg_per_m3]),
-            atmospheric_momentum_flux_Pa,
-            eci_unit_r,
-            eci_unit_t,
-            eci_unit_n,
-        ), axis=0)
+        state[ECI_UNIT_R[0]:ECI_UNIT_R[1]] = eci_unit_r  # ECI unit vector in radial direction
+        state[ECI_UNIT_T[0]:ECI_UNIT_T[1]] = eci_unit_t  # ECI unit vector in tangential direction
+        state[ECI_UNIT_N[0]:ECI_UNIT_N[1]] = eci_unit_n  # ECI unit vector in normal direction
 
         # Store history
         history[i, 1:(len(state)+1)] = state
@@ -273,7 +261,7 @@ def main():
 
 
 
-    trajectory = history[:, 7:10]  # ECI position
+    trajectory = history[:, ECI_STATE[0]+1:(ECI_STATE[0]+4)]  # ECI position
     # trajectory = np.zeros((N_STEPS, 3))
     # for i in range(N_STEPS):
     #     try:
@@ -286,7 +274,7 @@ def main():
     #         break
 
 
-    lat_lon_alt = history[:, 13:16]  # Latitude, Longitude, Altitude
+    lat_lon_alt = history[:, LAT[0]+1:ALT[1]+1]  # Latitude, Longitude, Altitude
     # for i in range(N_STEPS):
     #     # Convert ECI coordinates to ground track (latitude, longitude)
     #     x, y, z = trajectory[i, :]*1000  # Convert to meters
