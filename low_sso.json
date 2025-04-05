@@ -7,5 +7,8 @@
     "g": 0,
     "h": 1.12237539532,
     "k": 0,
-    "l": 0
+    "l": 0,
+    "dry_mass_tons": 100,
+    "max_propellant_mass_tons": 0,
+    "max_tailings_mass_tons": 0
 }
