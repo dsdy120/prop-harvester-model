@@ -23,32 +23,39 @@ ANG_VEL_EARTH_RAD_PER_S = 7.2921159e-5  # rad/s, Earth's angular velocity
 KARMAN_ALT_KM = 100.0  # km, Karman line
 
 
-SHAPE_STATE = (100,)  # State vector dimension
+SHAPE_STATE = (150,)  # State vector dimension
 
 # State vector indices, inclusive start and exclusive end
-INTEGRABLE_STATE_START_STOP_INDEX = (0, 50)
-MOD_EQUINOCTIAL_START_STOP_INDEX = (0, 6)
-PROPELLANT_MASS_START_STOP_INDEX = (6, 7)
-TAILING_MASS_START_STOP_INDEX = (7, 8)
+INTEGRABLE_STATE                        = (0, 50)
 
-INSTANTANEOUS_STATE_START_STOP_INDEX = (50, 100)
-ECI_STATE_START_STOP_INDEX = (50, 56)
-LAT_START_STOP_INDEX = (56, 57)
-LON_START_STOP_INDEX = (57, 58)
-ALT_START_STOP_INDEX = (58, 59)
-ECEF_VEL_START_STOP_INDEX = (59, 62)
-AIRSPEED_KM_PER_S_START_STOP_INDEX = (62, 63)
-ATMOSPHERIC_MASS_DENSITY_START_STOP_INDEX = (63, 64)
-ATMOSPHERIC_MOMENTUM_FLUX_START_STOP_INDEX = (64, 67)
-ECI_UNIT_R_START_STOP_INDEX = (67, 70)
-ECI_UNIT_T_START_STOP_INDEX = (70, 73)
-ECI_UNIT_N_START_STOP_INDEX = (73, 76)
-CONDENSATE_PROPULSIVE_FRACTION_START_STOP_INDEX = (76, 77)
-SCOOP_THROTTLE_START_STOP_INDEX = (77, 78)
-ANGLE_OF_ATTACK_START_STOP_INDEX = (78, 79)
-LVLH_RPY_START_STOP_INDEX = (79, 82)
-ECI_BODY_RATES_START_STOP_INDEX = (82, 85)
-ECI_NET_BODY_TORQUES_START_STOP_INDEX = (85, 88)
+MOD_EQUINOCTIAL_ELEMENTS                = (0, 6)
+PROPELLANT_MASS_KG                      = (6, 7)
+TAILING_MASS                            = (7, 8)
+
+
+INSTANTANEOUS_STATE                     = (50, 150)
+
+ECI_STATE                               = (50, 56)
+LAT                                     = (56, 57)
+LON                                     = (57, 58)
+ALT                                     = (58, 59)
+ECEF_VEL                                = (59, 62)
+AIRSPEED_KM_PER_S                       = (62, 63)
+ATMOSPHERIC_MASS_DENSITY                = (63, 64)
+ATMOSPHERIC_MOMENTUM_FLUX               = (64, 67)
+ECI_UNIT_R                              = (67, 70)
+ECI_UNIT_T                              = (70, 73)
+ECI_UNIT_N                              = (73, 76)
+CONDENSATE_PROPULSIVE_FRACTION          = (76, 77)
+SCOOP_THROTTLE                          = (77, 78)
+ANGLE_OF_ATTACK                         = (78, 79)
+LVLH_RPY                                = (79, 82)
+ECI_BODY_RATES                          = (82, 85)
+ECI_NET_BODY_TORQUES                    = (85, 88)
+MASS_COLLECTION_RATE_KG_S               = (88, 89)
+PROPELLANT_COLLECTION_RATE_KG_S         = (89, 90)
+TAILINGS_COLLECTION_RATE_KG_S           = (90, 91)
+
 
 SHAPE_PERTURBATION = (3,)  # Perturbation dimension (e.g., atmospheric drag)
 
@@ -71,12 +78,12 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
         -6 * J2_EARTH * MU_EARTH_KM3_PER_S2 * (R_EARTH_KM/(r**2))**2 * (1 - h**2 - k**2) * (h*np.sin(l) - k*np.cos(l))/(1 + h**2 + k**2)**2
     ])
 
-    atmospheric_momentum_flux_Pa = state[ATMOSPHERIC_MOMENTUM_FLUX_START_STOP_INDEX[0]:ATMOSPHERIC_MOMENTUM_FLUX_START_STOP_INDEX[1]]  # Atmospheric momentum flux in Pa
+    atmospheric_momentum_flux_Pa = state[ATMOSPHERIC_MOMENTUM_FLUX[0]:ATMOSPHERIC_MOMENTUM_FLUX[1]]  # Atmospheric momentum flux in Pa
     effective_drag_area_m2 = 50 #TODO: Implement effective drag area, mass and attitude
     mass_kg = 100000
-    lvlh_unit_r = state[ECI_UNIT_R_START_STOP_INDEX[0]:ECI_UNIT_R_START_STOP_INDEX[1]]  # Unit vector in radial direction
-    lvlh_unit_t = state[ECI_UNIT_T_START_STOP_INDEX[0]:ECI_UNIT_T_START_STOP_INDEX[1]]  # Unit vector in tangential direction
-    lvlh_unit_n = state[ECI_UNIT_N_START_STOP_INDEX[0]:ECI_UNIT_N_START_STOP_INDEX[1]]  # Unit vector in normal direction
+    lvlh_unit_r = state[ECI_UNIT_R[0]:ECI_UNIT_R[1]]  # Unit vector in radial direction
+    lvlh_unit_t = state[ECI_UNIT_T[0]:ECI_UNIT_T[1]]  # Unit vector in tangential direction
+    lvlh_unit_n = state[ECI_UNIT_N[0]:ECI_UNIT_N[1]]  # Unit vector in normal direction
 
 
     drag_perturbation_km_per_s2 = (effective_drag_area_m2/mass_kg)*np.array([
@@ -177,7 +184,7 @@ def main():
         if i % (N_STEPS/100) == 0:
             print(f"Step {i}/{N_STEPS}")
 
-        if i != 0 and state[ALT_START_STOP_INDEX[0]] < 0.5 * KARMAN_ALT_KM:
+        if i != 0 and state[ALT[0]] < 0.5 * KARMAN_ALT_KM:
             print("Spacecraft has reentered the atmosphere.")
             break
         state = rk4_step(state, TIMESTEP_SEC).flatten()
@@ -190,7 +197,7 @@ def main():
             elements,
             mu=MU_EARTH_KM3_PER_S2
         ).flatten()
-        state[ECI_STATE_START_STOP_INDEX[0]:ECI_STATE_START_STOP_INDEX[1]] = eci_state_km  # ECI position and velocity
+        state[ECI_STATE[0]:ECI_STATE[1]] = eci_state_km  # ECI position and velocity
 
         # spec_energy = 0.5 * np.linalg.norm(eci_state_km[3:6])**2 - MU_EARTH_KM3_PER_S2 / np.linalg.norm(eci_state_km[0:3])
         # print(spec_energy)
@@ -205,9 +212,9 @@ def main():
             deg=True
         )
         alt_km *= 0.001  # Convert to km
-        state[LAT_START_STOP_INDEX[0]:LAT_START_STOP_INDEX[1]] = lat_deg  # Latitude
-        state[LON_START_STOP_INDEX[0]:LON_START_STOP_INDEX[1]] = lon_deg  # Longitude
-        state[ALT_START_STOP_INDEX[0]:ALT_START_STOP_INDEX[1]] = alt_km  # Altitude
+        state[LAT[0]:LAT[1]] = lat_deg  # Latitude
+        state[LON[0]:LON[1]] = lon_deg  # Longitude
+        state[ALT[0]:ALT[1]] = alt_km  # Altitude
 
         ecef_position_km = np.array(pymap3d.eci2ecef(
             *(eci_state_km[0:3]*1000),  # ECI position converted to meters
@@ -217,7 +224,7 @@ def main():
             np.array([0, 0, -ANG_VEL_EARTH_RAD_PER_S]),  # Earth's rotation rate
             ecef_position_km
         )
-        state[ECEF_VEL_START_STOP_INDEX[0]:ECEF_VEL_START_STOP_INDEX[1]] = ecef_velocity_km_per_s  # ECEF velocity
+        state[ECEF_VEL[0]:ECEF_VEL[1]] = ecef_velocity_km_per_s  # ECEF velocity
         # print(np.dot(ecef_velocity_km_per_s, eci_state_km[3:6])/(np.linalg.norm(ecef_velocity_km_per_s)*np.linalg.norm(eci_state_km[3:6])))
         
         species_density_per_m3 = nrlmsise00.msise_model(
@@ -235,18 +242,18 @@ def main():
         airspeed_km_per_s = np.linalg.norm(ecef_velocity_km_per_s[0:3])
         atmospheric_momentum_flux_Pa = -0.5 * atmospheric_mass_density_kg_per_m3 * 1000 * airspeed_km_per_s * 1000 * ecef_velocity_km_per_s
         # print(np.dot(atmospheric_momentum_flux_Pa, ecef_velocity_km_per_s)/(np.linalg.norm(atmospheric_momentum_flux_Pa)*np.linalg.norm(ecef_velocity_km_per_s)))
-        state[AIRSPEED_KM_PER_S_START_STOP_INDEX[0]:AIRSPEED_KM_PER_S_START_STOP_INDEX[1]] = airspeed_km_per_s  # Airspeed
-        state[ATMOSPHERIC_MASS_DENSITY_START_STOP_INDEX[0]:ATMOSPHERIC_MASS_DENSITY_START_STOP_INDEX[1]] = atmospheric_mass_density_kg_per_m3  # Atmospheric mass density
-        state[ATMOSPHERIC_MOMENTUM_FLUX_START_STOP_INDEX[0]:ATMOSPHERIC_MOMENTUM_FLUX_START_STOP_INDEX[1]] = atmospheric_momentum_flux_Pa  # Atmospheric momentum flux
+        state[AIRSPEED_KM_PER_S[0]:AIRSPEED_KM_PER_S[1]] = airspeed_km_per_s  # Airspeed
+        state[ATMOSPHERIC_MASS_DENSITY[0]:ATMOSPHERIC_MASS_DENSITY[1]] = atmospheric_mass_density_kg_per_m3  # Atmospheric mass density
+        state[ATMOSPHERIC_MOMENTUM_FLUX[0]:ATMOSPHERIC_MOMENTUM_FLUX[1]] = atmospheric_momentum_flux_Pa  # Atmospheric momentum flux
 
         eci_unit_r = eci_state_km[0:3] / np.linalg.norm(eci_state_km[0:3])
         eci_unit_v = eci_state_km[3:6] / np.linalg.norm(eci_state_km[3:6])
         eci_unit_n = np.cross(eci_unit_r, eci_unit_v)
         eci_unit_t = np.cross(eci_unit_n, eci_unit_r)
         # print(np.dot(eci_unit_v,eci_unit_t))
-        state[ECI_UNIT_R_START_STOP_INDEX[0]:ECI_UNIT_R_START_STOP_INDEX[1]] = eci_unit_r  # ECI unit vector in radial direction
-        state[ECI_UNIT_T_START_STOP_INDEX[0]:ECI_UNIT_T_START_STOP_INDEX[1]] = eci_unit_t  # ECI unit vector in tangential direction
-        state[ECI_UNIT_N_START_STOP_INDEX[0]:ECI_UNIT_N_START_STOP_INDEX[1]] = eci_unit_n  # ECI unit vector in normal direction
+        state[ECI_UNIT_R[0]:ECI_UNIT_R[1]] = eci_unit_r  # ECI unit vector in radial direction
+        state[ECI_UNIT_T[0]:ECI_UNIT_T[1]] = eci_unit_t  # ECI unit vector in tangential direction
+        state[ECI_UNIT_N[0]:ECI_UNIT_N[1]] = eci_unit_n  # ECI unit vector in normal direction
 
         # Store history
         history[i, 1:(len(state)+1)] = state
@@ -254,7 +261,7 @@ def main():
 
 
 
-    trajectory = history[:, ECI_STATE_START_STOP_INDEX[0]+1:(ECI_STATE_START_STOP_INDEX[0]+4)]  # ECI position
+    trajectory = history[:, ECI_STATE[0]+1:(ECI_STATE[0]+4)]  # ECI position
     # trajectory = np.zeros((N_STEPS, 3))
     # for i in range(N_STEPS):
     #     try:
@@ -267,7 +274,7 @@ def main():
     #         break
 
 
-    lat_lon_alt = history[:, LAT_START_STOP_INDEX[0]+1:ALT_START_STOP_INDEX[1]+1]  # Latitude, Longitude, Altitude
+    lat_lon_alt = history[:, LAT[0]+1:ALT[1]+1]  # Latitude, Longitude, Altitude
     # for i in range(N_STEPS):
     #     # Convert ECI coordinates to ground track (latitude, longitude)
     #     x, y, z = trajectory[i, :]*1000  # Convert to meters
