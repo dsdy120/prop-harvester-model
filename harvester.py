@@ -26,9 +26,12 @@ ANG_VEL_EARTH_RAD_PER_S = 7.2921159e-5  # rad/s, Earth's angular velocity
 KARMAN_ALT_KM = 100.0  # km, Karman line
 
 
-SHAPE_STATE = (150,)  # State vector dimension
+SHAPE_STATE = (200,)  # State vector dimension
+SHAPE_OUTPUT = (150,)  # Output vector dimension
+SHAPE_INPUT = (50,)  # Input vector dimension
 
 # State vector indices, inclusive start and exclusive end
+OUTPUT_STATE                            = (0, 150)
 INTEGRABLE_STATE                        = (0, 50)
 
 MOD_EQUINOCTIAL_ELEMENTS                = (0, 6)
@@ -53,7 +56,6 @@ DRAG_PERTURBATION_KM_PER_S2             = (76, 79)
 CONDENSATE_PROPULSIVE_FRACTION          = (79, 80)
 SCOOP_THROTTLE                          = (80, 81)
 ANGLE_OF_ATTACK                         = (81, 82)
-LVLH_QUATERNION                         = (82, 86)
 ECI_QUATERNION                          = (86, 90)
 ECI_BODY_RATES                          = (90, 93)
 ECI_NET_BODY_TORQUES                    = (93, 96)
@@ -63,13 +65,18 @@ TAILINGS_COLLECTION_RATE_KG_S           = (98, 99)
 TOTAL_MASS_KG                           = (99, 100)
 
 
+
+INPUT_STATE                            = (150, 200)
+BODY_TO_LVLH_QUATERNION                         = (150, 154)
+
+
 SHAPE_PERTURBATION = (3,)  # Perturbation dimension (e.g., atmospheric drag)
 
 # Define perturbation (extendable)
 def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
     # dimension check
-    if state.shape != SHAPE_STATE:
-        raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
+    if state.shape != SHAPE_OUTPUT:
+        raise ValueError(f"State vector must have {SHAPE_OUTPUT} elements, currently has {state.shape} elements.")
     
     # Unpack state vector
     elements = state[0:6]  # mod equinoctial elements
@@ -97,8 +104,8 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
 # Function computing derivatives for RK4
 def derivative(state:np.ndarray) -> np.ndarray:
     # dimension check
-    if state.shape != SHAPE_STATE:
-        raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
+    if state.shape != SHAPE_OUTPUT:
+        raise ValueError(f"State vector must have {SHAPE_OUTPUT} elements, currently has {state.shape} elements.")
     
     # Unpack state vector
     flat_state = state.flatten()
@@ -108,12 +115,12 @@ def derivative(state:np.ndarray) -> np.ndarray:
     w = orb_mech_utils.w_from_mod_equinoctial(elements)
     s_squared = orb_mech_utils.s_squared_from_mod_equinoctial(elements)
 
-    deriv_two_body = np.zeros(SHAPE_STATE)
+    deriv_two_body = np.zeros(SHAPE_OUTPUT)
     deriv_two_body[5] = np.sqrt(MU_EARTH_KM3_PER_S2 * p)*(w/p)**2
 
     p_r,p_t,p_n = perturbation_lvlh(state)
 
-    deriv_perturbation_lvlh = np.zeros(SHAPE_STATE)
+    deriv_perturbation_lvlh = np.zeros(SHAPE_OUTPUT)
     deriv_perturbation_lvlh[:6] = [
         (2*p)/w*np.sqrt(p/MU_EARTH_KM3_PER_S2)*p_t,
         np.sqrt(p/MU_EARTH_KM3_PER_S2)*(p_r*np.sin(l) + ((w+1)*np.cos(l)+f)*p_t/w - (h*np.sin(l) - k*np.cos(l))*g*p_n/w),
@@ -228,7 +235,7 @@ def main():
     N_STEPS = int(SIMULATION_LIFETIME_SEC / TIMESTEP_SEC)
 
     # Initial state: [p, f, g, h, k, l]
-    state = np.zeros(SHAPE_STATE[0])
+    state = np.zeros(OUTPUT_STATE[1]-OUTPUT_STATE[0]) 
     state[:6] = (p, f, g, h, k, l)  # mod equinoctial elements
     state[6] = 0  # Tank Fill State
 
@@ -237,7 +244,7 @@ def main():
     # +1 for time, 
     history[:, 0] = np.array([start_dt.timestamp() + i*TIMESTEP_SEC for i in range(N_STEPS)])  # Time in seconds since J2000
     datetimes = [datetime.datetime.fromtimestamp(i) for i in history[:, 0]]  # Convert to datetime objects
-    history[:, LVLH_QUATERNION[0]+1:LVLH_QUATERNION[1]+1] = LVLH_QUAT_SLERP(history[:, 0]).as_quat()  # LVLH quaternion
+    history[:, BODY_TO_LVLH_QUATERNION[0]+1:BODY_TO_LVLH_QUATERNION[1]+1] = LVLH_QUAT_SLERP(history[:, 0]).as_quat()  # LVLH quaternion
 
     # Run simulation
     for i in range(N_STEPS):
@@ -335,11 +342,11 @@ def main():
         # )
         # current_rot:R = LVLH_QUAT_SLERP(current_time.timestamp())
         # current_quat = current_rot.as_quat()
-        current_quat = history[i, LVLH_QUATERNION[0]+1:LVLH_QUATERNION[1]+1]  # LVLH quaternion
-        current_rot = R.from_quat(current_quat)
+        body_to_lvlh_quat = history[i, BODY_TO_LVLH_QUATERNION[0]+1:BODY_TO_LVLH_QUATERNION[1]+1]  # LVLH quaternion
+        body_to_lvlh_rot = R.from_quat(body_to_lvlh_quat)
         # print(current_quat)
 
-        state[LVLH_QUATERNION[0]:LVLH_QUATERNION[1]] = current_quat  # LVLH quaternion
+        # state[LVLH_QUATERNION[0]:LVLH_QUATERNION[1]] = current_quat  # LVLH quaternion
 
         lvlh_to_eci_rot = R.from_matrix(
             np.array(
@@ -352,9 +359,17 @@ def main():
         )
         # print(np.cross((lvlh_to_eci_rot.apply(np.array([0,0,1]))), np.cross(eci_state_km[0:3],eci_state_km[3:6])))
 
-        eci_quat = lvlh_to_eci_rot * current_rot
+        body_to_eci_rot = lvlh_to_eci_rot * body_to_lvlh_rot
         # print(eci_quat.as_quat())
-        state[LVLH_QUATERNION[0]:LVLH_QUATERNION[1]] = eci_quat.as_quat()  # ECI quaternion
+        state[ECI_QUATERNION[0]:ECI_QUATERNION[1]] = body_to_eci_rot.as_quat()  # ECI quaternion
+        # print(f"{1-np.dot(body_to_eci_rot.apply(np.array([0,0,1])), -eci_state_km[0:3]/np.linalg.norm(eci_state_km[0:3])): .12f}")
+        # print(f"{np.linalg.norm(np.cross(body_to_eci_rot.apply(np.array([0,1,0])), np.cross(eci_state_km[0:3],eci_state_km[3:6]))): .12f}")
+        # print(f"{1-np.dot(body_to_eci_rot.apply(np.array([1,0,0])), eci_unit_t): .12f}")
+
+        nose_vector = body_to_eci_rot.apply(np.array([1, 0, 0]))  # Nose vector in ECI frame
+        angle_of_attack = np.arccos(np.dot(nose_vector, eci_unit_t))  # Angle of attack in radians
+        print(f"Angle of attack: {angle_of_attack} rad")
+        state[ANGLE_OF_ATTACK[0]:ANGLE_OF_ATTACK[1]] = angle_of_attack  # Angle of attack in radians
 
         # Store history
         history[i, 1:(len(state)+1)] = state
