@@ -3,6 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import nrlmsise00
 from scipy.sparse.linalg import gmres
+from scipy.spatial.transform import Rotation as R
+from scipy.spatial.transform import Slerp
+import scipy.spatial.transform
 import orb_mech_utils
 import sys
 import json
@@ -51,12 +54,13 @@ CONDENSATE_PROPULSIVE_FRACTION          = (79, 80)
 SCOOP_THROTTLE                          = (80, 81)
 ANGLE_OF_ATTACK                         = (81, 82)
 LVLH_QUATERNION                         = (82, 86)
-ECI_BODY_RATES                          = (86, 89)
-ECI_NET_BODY_TORQUES                    = (89, 92)
-MASS_COLLECTION_RATE_KG_S               = (92, 95)
-PROPELLANT_COLLECTION_RATE_KG_S         = (95, 98)
-TAILINGS_COLLECTION_RATE_KG_S           = (98, 101)
-TOTAL_MASS_KG                           = (101, 102)
+ECI_QUATERNION                          = (86, 90)
+ECI_BODY_RATES                          = (90, 93)
+ECI_NET_BODY_TORQUES                    = (93, 96)
+MASS_COLLECTION_RATE_KG_S               = (96, 97)
+PROPELLANT_COLLECTION_RATE_KG_S         = (97, 98)
+TAILINGS_COLLECTION_RATE_KG_S           = (98, 99)
+TOTAL_MASS_KG                           = (99, 100)
 
 
 SHAPE_PERTURBATION = (3,)  # Perturbation dimension (e.g., atmospheric drag)
@@ -140,6 +144,51 @@ def rk4_step(state:np.ndarray, dt:float) -> np.ndarray:
     k4 = derivative(state + dt * k3)
     return state + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
 
+def quaternion_slerp(q0, q1, t):
+    """
+    Spherical linear interpolation between two quaternions.
+    """
+    dot_product = np.dot(q0, q1)
+    if dot_product < 0.0:
+        q1 = -q1
+        dot_product = -dot_product
+
+    if dot_product > 0.9995:
+        result = q0 + t * (q1 - q0)
+        return result / np.linalg.norm(result)
+
+    theta_0 = np.arccos(dot_product)
+    theta = theta_0 * t
+    sin_theta = np.sin(theta)
+    sin_theta_0 = np.sin(theta_0)
+
+    s0 = np.cos(theta) - dot_product * sin_theta / sin_theta_0
+    s1 = sin_theta / sin_theta_0
+
+    return (s0 * q0 + s1 * q1)
+
+def schedule_interpolation(
+        schedule:dict, 
+        current_time:datetime.datetime, 
+        interpolation_method:callable
+) -> np.ndarray:
+    """
+    Interpolates the schedule based on the current time using the specified interpolation method.
+    """
+    # Find the two closest times in the schedule
+    times = list(schedule.keys())
+    times.sort()
+    closest_time_start = min(times, key=lambda x: abs(x - current_time))
+    closest_time_end = min(times, key=lambda x: abs(x - (current_time + datetime.timedelta(seconds=1))))
+
+    start_value = schedule[closest_time_start]
+    end_value = schedule[closest_time_end]
+    
+    # Calculate the interpolation factor
+    t = (current_time - closest_time_start).total_seconds() / (closest_time_end - closest_time_start).total_seconds()
+
+    return interpolation_method(start_value, end_value, t)
+
 def main():
     # Set up simulation parameters
     cfg_file_name = sys.argv[1] if len(sys.argv) > 1 else "config.json"
@@ -160,6 +209,15 @@ def main():
     DRY_MASS_KG = cfg["dry_mass_tons"]*1000  # Dry mass (tons)
     MAX_PROPELLANT_MASS_KG = cfg["max_propellant_mass_tons"]*1000  # Max propellant mass (tons)
     MAX_TAILINGS_MASS_KG = cfg["max_tailings_mass_tons"]*1000  # Max tailings mass (tons)
+
+    # Input Schedules
+    LVLH_QUAT_SCHEDULE:dict = {
+        datetime.datetime.fromisoformat(k).timestamp(): R.from_quat(np.array(v)) for k,v in cfg["lvlh_quat_schedule"].items()
+    }
+    LVLH_QUAT_TIMES = [i for i in LVLH_QUAT_SCHEDULE.keys()]
+    LVLH_QUAT_ROTATIONS = [i for i in LVLH_QUAT_SCHEDULE.values()]
+
+    LVLH_QUAT_SLERP = Slerp(LVLH_QUAT_TIMES, *LVLH_QUAT_ROTATIONS)
 
     # Simulation parameters
     TIMESTEP_SEC = timestep_sec       # Time step (s)
@@ -265,6 +323,30 @@ def main():
         ])*0.001
         state[DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]] = drag_perturbation_km_per_s2  # Drag perturbation
 
+        # Attitude Control
+        # current_quat = schedule_interpolation(
+        #     LVLH_QUAT_SCHEDULE,
+        #     current_time,
+        #     interpolation_method=quaternion_slerp
+        # )
+        current_rot:R = LVLH_QUAT_SLERP(current_time.timestamp())
+        current_quat = current_rot.as_quat()
+
+        state[LVLH_QUATERNION[0]:LVLH_QUATERNION[1]] = current_quat  # LVLH quaternion
+
+        lvlh_to_eci_rot = R.from_matrix(
+            np.array(
+                [
+                    eci_unit_r,
+                    eci_unit_t,
+                    eci_unit_n
+                ]
+            )
+        )
+
+        eci_quat = lvlh_to_eci_rot * current_rot
+        print(eci_quat.as_quat())
+        state[LVLH_QUATERNION[0]:LVLH_QUATERNION[1]] = eci_quat.as_quat()  # ECI quaternion
 
         # Store history
         history[i, 1:(len(state)+1)] = state

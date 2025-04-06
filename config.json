@@ -10,5 +10,9 @@
     "l": 0,
     "dry_mass_tons": 100,
     "max_propellant_mass_tons": 0,
-    "max_tailings_mass_tons": 0
+    "max_tailings_mass_tons": 0,
+    "lvlh_quat_schedule": {
+        "2025-04-01T00:00:00Z": [1,0,0,0],
+        "2999-12-31T23:59:59Z": [1,0,0,0]
+    }
 }
