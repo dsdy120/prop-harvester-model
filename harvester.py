@@ -15,7 +15,7 @@ import datetime
 ####################
 # Constants
 ####################
-# Gravitational parameters for Earth from WGS84 J2000
+# Gravitational parameters for Earth from WGS84
 MU_EARTH_KM3_PER_S2 = 398600.4418  # km^3/s^2
 R_EARTH_KM = 6378.137  # km
 J2_EARTH = 1.08262668e-3  # J2 coefficient for Earth
@@ -172,6 +172,8 @@ def schedule_interpolation(
     times.sort()
     intervals = zip(times[:-1], times[1:])
 
+    interpolated_values = np.array([])
+
     history_times = history[:, 0]
 
     for i in intervals:
@@ -180,9 +182,15 @@ def schedule_interpolation(
         if len(included_times) == 0:
             continue
 
+        # Get the start and end values for the interpolation
+        start_value = schedule[i[0]]
+        end_value = schedule[i[1]]
+        interpolation_factor = (included_times - i[0]) / (i[1] - i[0])
 
+        interpolated_values = np.concatenate(interpolated_values, interpolation_method(start_value, end_value, interpolation_factor))
 
-    # return interpolation_method(start_value, end_value, t)
+    # Return the interpolated values
+    return interpolated_values
 
 def main():
     # Set up simulation parameters
@@ -227,7 +235,9 @@ def main():
     # Store simulation history
     history = np.zeros((N_STEPS, SHAPE_STATE[0]+1))  
     # +1 for time, 
-    history[:, 0] = np.arange(0, N_STEPS * TIMESTEP_SEC, TIMESTEP_SEC)
+    history[:, 0] = np.array([start_dt.timestamp() + i*TIMESTEP_SEC for i in range(N_STEPS)])  # Time in seconds since J2000
+    datetimes = [datetime.datetime.fromtimestamp(i) for i in history[:, 0]]  # Convert to datetime objects
+    history[:, LVLH_QUATERNION[0]+1:LVLH_QUATERNION[1]+1] = LVLH_QUAT_SLERP(history[:, 0]).as_quat()  # LVLH quaternion
 
     # Run simulation
     for i in range(N_STEPS):
@@ -240,7 +250,7 @@ def main():
         state = rk4_step(state, TIMESTEP_SEC).flatten()
         elements = state[:6]  # mod equinoctial elements
         # Non-integrated quantities
-        current_time = start_dt + datetime.timedelta(seconds=history[i, 0])
+        current_time = datetimes[i]
         # ECI position and velocity
 
         eci_state_km = orb_mech_utils.mod_equinoctial_to_eci_state(
@@ -323,8 +333,10 @@ def main():
         #     current_time,
         #     interpolation_method=quaternion_slerp
         # )
-        current_rot:R = LVLH_QUAT_SLERP(current_time.timestamp())
-        current_quat = current_rot.as_quat()
+        # current_rot:R = LVLH_QUAT_SLERP(current_time.timestamp())
+        # current_quat = current_rot.as_quat()
+        current_quat = history[i, LVLH_QUATERNION[0]+1:LVLH_QUATERNION[1]+1]  # LVLH quaternion
+        current_rot = R.from_quat(current_quat)
         # print(current_quat)
 
         state[LVLH_QUATERNION[0]:LVLH_QUATERNION[1]] = current_quat  # LVLH quaternion
@@ -338,9 +350,10 @@ def main():
                 ]
             ).T
         )
+        # print(np.cross((lvlh_to_eci_rot.apply(np.array([0,0,1]))), np.cross(eci_state_km[0:3],eci_state_km[3:6])))
 
         eci_quat = lvlh_to_eci_rot * current_rot
-        print(eci_quat.as_quat())
+        # print(eci_quat.as_quat())
         state[LVLH_QUATERNION[0]:LVLH_QUATERNION[1]] = eci_quat.as_quat()  # ECI quaternion
 
         # Store history
@@ -382,6 +395,8 @@ def main():
     # Save results
     np.savetxt("orbit_simulation.csv", history, delimiter=",", comments="")
 
+    # Time Elapsed
+    mission_elapsed_time_days = (history[:, 0] - history[0, 0])/86400  # Convert to days
 
     # Plot trajectory in 3D
     fig = plt.figure()
@@ -408,29 +423,29 @@ def main():
 
     # Plot elements over time in separate subplots
     fig, axs = plt.subplots(3, 2, figsize=(12, 8))
-    axs[0, 0].plot(history[:, 0], history[:, 1])
+    axs[0, 0].plot(mission_elapsed_time_days, history[:, 1])
     axs[0, 0].set_title('Semi-latus Rectum (p)')
-    axs[0, 0].set_xlabel('Time (s)')
+    axs[0, 0].set_xlabel('Time (days)')
     axs[0, 0].set_ylabel('p (km)')
-    axs[0, 1].plot(history[:, 0], history[:, 2])
+    axs[0, 1].plot(mission_elapsed_time_days, history[:, 2])
     axs[0, 1].set_title('Equinoctial Element f')
-    axs[0, 1].set_xlabel('Time (s)')
+    axs[0, 1].set_xlabel('Time (days)')
     axs[0, 1].set_ylabel('f')
-    axs[1, 0].plot(history[:, 0], history[:, 3])
+    axs[1, 0].plot(mission_elapsed_time_days, history[:, 3])
     axs[1, 0].set_title('Equinoctial Element g')
-    axs[1, 0].set_xlabel('Time (s)')
+    axs[1, 0].set_xlabel('Time (days)')
     axs[1, 0].set_ylabel('g')
-    axs[1, 1].plot(history[:, 0], history[:, 4])
+    axs[1, 1].plot(mission_elapsed_time_days, history[:, 4])
     axs[1, 1].set_title('Equinoctial Element h')
-    axs[1, 1].set_xlabel('Time (s)')
+    axs[1, 1].set_xlabel('Time (days)')
     axs[1, 1].set_ylabel('h')
-    axs[2, 0].plot(history[:, 0], history[:, 5])
+    axs[2, 0].plot(mission_elapsed_time_days, history[:, 5])
     axs[2, 0].set_title('Equinoctial Element k')
-    axs[2, 0].set_xlabel('Time (s)')
+    axs[2, 0].set_xlabel('Time (days)')
     axs[2, 0].set_ylabel('k')
-    axs[2, 1].plot(history[:, 0], history[:, 6])
+    axs[2, 1].plot(mission_elapsed_time_days, history[:, 6])
     axs[2, 1].set_title('True Longitude (l)')
-    axs[2, 1].set_xlabel('Time (s)')
+    axs[2, 1].set_xlabel('Time (days)')
     axs[2, 1].set_ylabel('l (rad)')
 
     plt.tight_layout()
@@ -453,11 +468,11 @@ def main():
 
     # Plot altitude over time
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(history[:, 0], lat_lon_alt[:, 2], color='blue')
+    ax.plot(mission_elapsed_time_days, lat_lon_alt[:, 2], color='blue')
     # Plot Karman Line
     ax.axhline(y=KARMAN_ALT_KM, color='r', linestyle='--', label='Karman Line')
     ax.set_title('Altitude Over Time')
-    ax.set_xlabel('Time (s)')
+    ax.set_xlabel('Time (days)')
     ax.set_ylabel('Altitude (km)')
     plt.grid()
     plt.show()
