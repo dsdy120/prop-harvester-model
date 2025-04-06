@@ -82,6 +82,7 @@ def scoop_throttle_controller(state:np.ndarray) -> np.float64:
     
 
 
+
     # return scoop_throttle
 
 # Define perturbation (extendable)
@@ -389,7 +390,10 @@ def main():
         # print(f"{1-np.dot(body_to_eci_rot.apply(np.array([1,0,0])), eci_unit_t): .12f}")
 
         nose_vector = body_to_eci_rot.apply(np.array([1, 0, 0]))  # Nose vector in ECI frame
-        angle_of_attack = np.arccos(np.dot(nose_vector, eci_unit_t))  # Angle of attack in radians
+        angle_of_attack = np.arctan2(
+            np.linalg.norm(np.cross(nose_vector,-atmospheric_momentum_flux_Pa)),
+            np.dot(nose_vector,-atmospheric_momentum_flux_Pa)
+        )
         # print(f"Angle of attack: {angle_of_attack} rad")
         state[ANGLE_OF_ATTACK[0]:ANGLE_OF_ATTACK[1]] = angle_of_attack  # Angle of attack in radians
 
@@ -397,9 +401,12 @@ def main():
         history[i, 1:(len(state)+1)] = state
 
 
+    # Time Elapsed
+    mission_elapsed_time_days = (history[:, 0] - history[0, 0])/86400  # Convert to days
 
+    history = history[:,1:]
 
-    trajectory = history[:, ECI_STATE[0]+1:(ECI_STATE[0]+4)]  # ECI position
+    trajectory = history[:, ECI_STATE[0]:(ECI_STATE[0]+3)]  # ECI position
     # trajectory = np.zeros((N_STEPS, 3))
     # for i in range(N_STEPS):
     #     try:
@@ -412,7 +419,7 @@ def main():
     #         break
 
 
-    lat_lon_alt = history[:, LAT[0]+1:ALT[1]+1]  # Latitude, Longitude, Altitude
+    lat_lon_alt = history[:, LAT[0]:ALT[1]]  # Latitude, Longitude, Altitude
     # for i in range(N_STEPS):
     #     # Convert ECI coordinates to ground track (latitude, longitude)
     #     x, y, z = trajectory[i, :]*1000  # Convert to meters
@@ -431,9 +438,6 @@ def main():
 
     # Save results
     np.savetxt("orbit_simulation.csv", history, delimiter=",", comments="")
-
-    # Time Elapsed
-    mission_elapsed_time_days = (history[:, 0] - history[0, 0])/86400  # Convert to days
 
     # Plot trajectory in 3D
     fig = plt.figure()
@@ -516,15 +520,15 @@ def main():
 
     # Plot Angle of Attack over time
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, history[:, ANGLE_OF_ATTACK[0]+1], color='blue')
+    ax.plot(mission_elapsed_time_days, np.rad2deg(history[:, ANGLE_OF_ATTACK[0]]), color='blue')
     ax.set_title('Angle of Attack Over Time')
     ax.set_xlabel('Time (days)')
-    ax.set_ylabel('Angle of Attack (rad)')
+    ax.set_ylabel('Angle of Attack (deg)')
     plt.grid()
     plt.show()
     # Plot Airspeed over time
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, history[:, AIRSPEED_KM_PER_S[0]+1], color='blue')
+    ax.plot(mission_elapsed_time_days, history[:, AIRSPEED_KM_PER_S[0]], color='blue')
     ax.set_title('Airspeed Over Time')
     ax.set_xlabel('Time (days)')
     ax.set_ylabel('Airspeed (km/s)')
@@ -532,7 +536,7 @@ def main():
     plt.show()
     # Plot Atmospheric Mass Density over time
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, history[:, ATMOSPHERIC_MASS_DENSITY[0]+1], color='blue')
+    ax.plot(mission_elapsed_time_days, history[:, ATMOSPHERIC_MASS_DENSITY[0]], color='blue')
     ax.set_title('Atmospheric Mass Density Over Time')
     ax.set_xlabel('Time (days)')
     ax.set_ylabel('Atmospheric Mass Density (kg/m^3)')
@@ -540,7 +544,7 @@ def main():
     plt.grid()
     plt.show()
     # Plot Atmospheric Momentum Flux over time
-    atmospheric_momentum_flux_magnitude = history[:, ATMOSPHERIC_MOMENTUM_FLUX[0]+1:ATMOSPHERIC_MOMENTUM_FLUX[1]+1]
+    atmospheric_momentum_flux_magnitude = history[:, ATMOSPHERIC_MOMENTUM_FLUX[0]:ATMOSPHERIC_MOMENTUM_FLUX[1]]
     atmospheric_momentum_flux_magnitude = np.linalg.norm(atmospheric_momentum_flux_magnitude, axis=1)
 
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -552,7 +556,7 @@ def main():
     plt.grid()
     plt.show()
     # Plot Drag Perturbation over time
-    drag_perturbation_magnitude = np.linalg.norm(history[:, DRAG_PERTURBATION_KM_PER_S2[0]+1:DRAG_PERTURBATION_KM_PER_S2[1]+1], axis=1)
+    drag_perturbation_magnitude = np.linalg.norm(history[:, DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]], axis=1)
 
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.plot(mission_elapsed_time_days, drag_perturbation_magnitude, color='blue', label='Drag Perturbation')
@@ -565,9 +569,9 @@ def main():
     plt.show()
     # Plot Mass Collection Rates over time
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, history[:, MASS_COLLECTION_RATE_KG_S[0]+1], color='blue', label='Mass Collection Rate')
-    ax.plot(mission_elapsed_time_days, history[:, PROPELLANT_COLLECTION_RATE_KG_S[0]+1], color='green', label='Propellant Collection Rate')
-    ax.plot(mission_elapsed_time_days, history[:, TAILINGS_COLLECTION_RATE_KG_S[0]+1], color='red', label='Tailings Collection Rate')
+    ax.plot(mission_elapsed_time_days, history[:, MASS_COLLECTION_RATE_KG_S[0]], color='blue', label='Mass Collection Rate')
+    ax.plot(mission_elapsed_time_days, history[:, PROPELLANT_COLLECTION_RATE_KG_S[0]], color='green', label='Propellant Collection Rate')
+    ax.plot(mission_elapsed_time_days, history[:, TAILINGS_COLLECTION_RATE_KG_S[0]], color='red', label='Tailings Collection Rate')
     ax.set_title('Mass Collection Rates Over Time')
     ax.set_xlabel('Time (days)')
     ax.set_ylabel('Mass Collection Rate (kg/s)')
@@ -576,7 +580,7 @@ def main():
     plt.show()
     # Plot Total Mass over time
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, history[:, TOTAL_MASS_KG[0]+1], color='blue')
+    ax.plot(mission_elapsed_time_days, history[:, TOTAL_MASS_KG[0]], color='blue')
     ax.set_title('Total Mass Over Time')
     ax.set_xlabel('Time (days)')
     ax.set_ylabel('Total Mass (kg)')
