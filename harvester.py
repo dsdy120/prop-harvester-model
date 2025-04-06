@@ -84,14 +84,6 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
         -6 * J2_EARTH * MU_EARTH_KM3_PER_S2 * (R_EARTH_KM/(r**2))**2 * (1 - h**2 - k**2) * (h*np.sin(l) - k*np.cos(l))/(1 + h**2 + k**2)**2
     ])
 
-    atmospheric_momentum_flux_Pa = state[ATMOSPHERIC_MOMENTUM_FLUX[0]:ATMOSPHERIC_MOMENTUM_FLUX[1]]  # Atmospheric momentum flux in Pa
-    effective_drag_area_m2 = 50 #TODO: Implement effective drag area, mass and attitude
-    mass_kg = 100000
-    lvlh_unit_r = state[ECI_UNIT_R[0]:ECI_UNIT_R[1]]  # Unit vector in radial direction
-    lvlh_unit_t = state[ECI_UNIT_T[0]:ECI_UNIT_T[1]]  # Unit vector in tangential direction
-    lvlh_unit_n = state[ECI_UNIT_N[0]:ECI_UNIT_N[1]]  # Unit vector in normal direction
-
-
     drag_perturbation_km_per_s2 = state[DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]]  # Drag perturbation in km/s^2
 
     # print(atmospheric_momentum_flux_Pa)
@@ -169,7 +161,7 @@ def quaternion_slerp(q0, q1, t):
 
 def schedule_interpolation(
         schedule:dict, 
-        current_time:datetime.datetime, 
+        history:np.ndarray,
         interpolation_method:callable
 ) -> np.ndarray:
     """
@@ -178,16 +170,19 @@ def schedule_interpolation(
     # Find the two closest times in the schedule
     times = list(schedule.keys())
     times.sort()
-    closest_time_start = min(times, key=lambda x: abs(x - current_time))
-    closest_time_end = min(times, key=lambda x: abs(x - (current_time + datetime.timedelta(seconds=1))))
+    intervals = zip(times[:-1], times[1:])
 
-    start_value = schedule[closest_time_start]
-    end_value = schedule[closest_time_end]
-    
-    # Calculate the interpolation factor
-    t = (current_time - closest_time_start).total_seconds() / (closest_time_end - closest_time_start).total_seconds()
+    history_times = history[:, 0]
 
-    return interpolation_method(start_value, end_value, t)
+    for i in intervals:
+        included_times = history_times[(history_times >= i[0]) & (history_times <= i[1])]
+
+        if len(included_times) == 0:
+            continue
+
+
+
+    # return interpolation_method(start_value, end_value, t)
 
 def main():
     # Set up simulation parameters
@@ -212,12 +207,12 @@ def main():
 
     # Input Schedules
     LVLH_QUAT_SCHEDULE:dict = {
-        datetime.datetime.fromisoformat(k).timestamp(): R.from_quat(np.array(v)) for k,v in cfg["lvlh_quat_schedule"].items()
+        datetime.datetime.fromisoformat(k).timestamp(): np.array(v) for k,v in cfg["lvlh_quat_schedule"].items()
     }
     LVLH_QUAT_TIMES = [i for i in LVLH_QUAT_SCHEDULE.keys()]
-    LVLH_QUAT_ROTATIONS = [i for i in LVLH_QUAT_SCHEDULE.values()]
+    LVLH_QUAT_ROTATIONS = R.from_quat(np.array([i for i in LVLH_QUAT_SCHEDULE.values()]))
 
-    LVLH_QUAT_SLERP = Slerp(LVLH_QUAT_TIMES, *LVLH_QUAT_ROTATIONS)
+    LVLH_QUAT_SLERP = Slerp(LVLH_QUAT_TIMES, LVLH_QUAT_ROTATIONS)
 
     # Simulation parameters
     TIMESTEP_SEC = timestep_sec       # Time step (s)
@@ -233,7 +228,6 @@ def main():
     history = np.zeros((N_STEPS, SHAPE_STATE[0]+1))  
     # +1 for time, 
     history[:, 0] = np.arange(0, N_STEPS * TIMESTEP_SEC, TIMESTEP_SEC)
-
 
     # Run simulation
     for i in range(N_STEPS):
@@ -331,6 +325,7 @@ def main():
         # )
         current_rot:R = LVLH_QUAT_SLERP(current_time.timestamp())
         current_quat = current_rot.as_quat()
+        # print(current_quat)
 
         state[LVLH_QUATERNION[0]:LVLH_QUATERNION[1]] = current_quat  # LVLH quaternion
 
@@ -341,7 +336,7 @@ def main():
                     eci_unit_t,
                     eci_unit_n
                 ]
-            )
+            ).T
         )
 
         eci_quat = lvlh_to_eci_rot * current_rot
