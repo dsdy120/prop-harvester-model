@@ -5,6 +5,7 @@ import nrlmsise00
 from scipy.sparse.linalg import gmres
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
+from scipy.interpolate import interp1d
 import scipy.spatial.transform
 import orb_mech_utils
 import sys
@@ -72,18 +73,22 @@ BODY_TO_LVLH_QUATERNION                         = (150, 154)
 
 SHAPE_PERTURBATION = (3,)  # Perturbation dimension (e.g., atmospheric drag)
 
-def scoop_throttle_controller(state:np.ndarray) -> np.float64:
+def scoop_throttle_controller(state:np.ndarray, max_propellant_kg, max_tailings_kg) -> np.float64:
     """
-    Controller for the scoop throttle.
+    Controller for the scoop throttle. Outputs a scalar value between 0 and 1.
+
+    Demo controller throttles the scoop if 
     """
     # dimension check
     if state.shape != SHAPE_OUTPUT:
         raise ValueError(f"State vector must have {SHAPE_OUTPUT} elements, currently has {state.shape} elements.")
     
+    if state[PROPELLANT_MASS_KG[0]] <= max_propellant_kg:
+        return 1.0
+    if state[TAILING_MASS_KG[0]] <= max_tailings_kg:
+        return 1.0
 
-
-
-    # return scoop_throttle
+    return 0.0
 
 # Define perturbation (extendable)
 def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
@@ -239,8 +244,19 @@ def main():
     }
     LVLH_QUAT_TIMES = [i for i in LVLH_QUAT_SCHEDULE.keys()]
     LVLH_QUAT_ROTATIONS = R.from_quat(np.array([i for i in LVLH_QUAT_SCHEDULE.values()]))
-
     LVLH_QUAT_SLERP = Slerp(LVLH_QUAT_TIMES, LVLH_QUAT_ROTATIONS)
+
+    SCOOP_EFF_DRAG_AREA_M2_AOA_MAP = {
+        float(k): np.float64(v)
+        for k,v in cfg["scoop_effective_drag_area_m2_aoa_map"].items()
+    }
+
+
+    SPACECRAFT_EFF_DRAG_AREA_M2_AOA_MAP = {
+        float(k): np.float64(v)
+        for k,v in cfg["spacecraft_effective_drag_area_m2_aoa_map"].items()
+    }
+
 
     # Simulation parameters
     TIMESTEP_SEC = timestep_sec       # Time step (s)
