@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import nrlmsise00
+import scipy.interpolate
 from scipy.sparse.linalg import gmres
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
@@ -25,7 +26,9 @@ ANG_VEL_EARTH_RAD_PER_S = 7.2921159e-5  # rad/s, Earth's angular velocity
 
 # Atmospheric parameters
 KARMAN_ALT_KM = 100.0  # km, Karman line
-
+AVOGADRO_NUMBER = 6.02214076e23  # mol^-1
+OXYGEN_MOLECULE_MASS_KG = 32.0e-3 / AVOGADRO_NUMBER  # kg/molecule
+MONOATOMIC_OXYGEN_MASS_KG = 16.0e-3 / AVOGADRO_NUMBER  # kg/molecule
 
 SHAPE_STATE = (200,)  # State vector dimension
 SHAPE_OUTPUT = (150,)  # Output vector dimension
@@ -57,14 +60,17 @@ DRAG_PERTURBATION_KM_PER_S2             = (76, 79)
 CONDENSATE_PROPULSIVE_FRACTION          = (79, 80)
 SCOOP_THROTTLE                          = (80, 81)
 ANGLE_OF_ATTACK                         = (81, 82)
-ECI_QUATERNION                          = (86, 90)
+ECI_QUATERNION                          = (86, 90)  # Gap here: indices 82-85 are missing
 ECI_BODY_RATES                          = (90, 93)
 ECI_NET_BODY_TORQUES                    = (93, 96)
 MASS_COLLECTION_RATE_KG_S               = (96, 97)
-PROPELLANT_COLLECTION_RATE_KG_S         = (97, 98)
-TAILINGS_COLLECTION_RATE_KG_S           = (98, 99)
+PROPELLANT_COLLECTION_RATE_KG_PER_S         = (97, 98)
+TAILINGS_COLLECTION_RATE_KG_PER_S           = (98, 99)
 TOTAL_MASS_KG                           = (99, 100)
-
+SCOOP_EFFICIENCY                        = (100, 101)
+SCOOP_EFF_DRAG_AREA_M2                  = (101, 102)
+SPACECRAFT_EFF_DRAG_AREA_M2             = (102, 103)
+EFFECTIVE_DRAG_AREA_M2                  = (103, 104)
 
 
 INPUT_STATE                            = (150, 200)
@@ -77,12 +83,14 @@ def scoop_throttle_controller(state:np.ndarray, max_propellant_kg, max_tailings_
     """
     Controller for the scoop throttle. Outputs a scalar value between 0 and 1.
 
-    Demo controller throttles the scoop if 
+    Demo controller deactivates the scoop if all tanks are full or the scoop is at zero efficiency.
     """
     # dimension check
     if state.shape != SHAPE_OUTPUT:
         raise ValueError(f"State vector must have {SHAPE_OUTPUT} elements, currently has {state.shape} elements.")
     
+    if state[SCOOP_EFFICIENCY[0]] <= 0.0:
+        return 0.0
     if state[PROPELLANT_MASS_KG[0]] <= max_propellant_kg:
         return 1.0
     if state[TAILING_MASS_KG[0]] <= max_tailings_kg:
@@ -148,7 +156,11 @@ def derivative(state:np.ndarray) -> np.ndarray:
         (1/w)*np.sqrt(p/MU_EARTH_KM3_PER_S2)*(h*np.sin(l) - k*np.cos(l))*p_n,
     ]
 
-    total_derivative = deriv_two_body + deriv_perturbation_lvlh
+    deriv_mass_collection = np.zeros(SHAPE_OUTPUT)
+    deriv_mass_collection[PROPELLANT_MASS_KG[0]:PROPELLANT_MASS_KG[1]] = state[PROPELLANT_COLLECTION_RATE_KG_PER_S[0]:PROPELLANT_COLLECTION_RATE_KG_PER_S[1]]
+    deriv_mass_collection[TAILING_MASS_KG[0]:TAILING_MASS_KG[1]] = state[TAILINGS_COLLECTION_RATE_KG_PER_S[0]:TAILINGS_COLLECTION_RATE_KG_PER_S[1]]
+
+    total_derivative = deriv_two_body + deriv_perturbation_lvlh + deriv_mass_collection
 
     return total_derivative  # Placeholder for derivatives
 
@@ -237,6 +249,7 @@ def main():
     DRY_MASS_KG = cfg["dry_mass_tons"]*1000  # Dry mass (tons)
     MAX_PROPELLANT_MASS_KG = cfg["max_propellant_mass_tons"]*1000  # Max propellant mass (tons)
     MAX_TAILINGS_MASS_KG = cfg["max_tailings_mass_tons"]*1000  # Max tailings mass (tons)
+    SCOOP_COLLECTOR_AREA_M2 = cfg["scoop_collector_area_m2"]  # Collector area (m^2)
 
     # Input Schedules
     LVLH_QUAT_SCHEDULE:dict = {
@@ -246,17 +259,18 @@ def main():
     LVLH_QUAT_ROTATIONS = R.from_quat(np.array([i for i in LVLH_QUAT_SCHEDULE.values()]))
     LVLH_QUAT_SLERP = Slerp(LVLH_QUAT_TIMES, LVLH_QUAT_ROTATIONS)
 
-    SCOOP_EFF_DRAG_AREA_M2_AOA_MAP = {
-        float(k): np.float64(v)
-        for k,v in cfg["scoop_effective_drag_area_m2_aoa_map"].items()
-    }
+    SCOOP_EFFICIENCY_AOA_MAP = np.array(cfg["scoop_efficiency_aoa_map"])
 
+    SCOOP_THROTTLE_DRAG_MULTIPLIER = np.array(cfg["scoop_throttle_drag_multiplier"])
+    
+    SCOOP_EFF_DRAG_AREA_M2_AOA_MAP = np.array(cfg["scoop_effective_drag_area_m2_aoa_map"])
 
-    SPACECRAFT_EFF_DRAG_AREA_M2_AOA_MAP = {
-        float(k): np.float64(v)
-        for k,v in cfg["spacecraft_effective_drag_area_m2_aoa_map"].items()
-    }
+    SPACECRAFT_EFF_DRAG_AREA_M2_AOA_MAP = np.array(cfg["spacecraft_effective_drag_area_m2_aoa_map"])
 
+    SCOOP_EFFICIENCY_INTERP = interp1d(SCOOP_EFFICIENCY_AOA_MAP[:, 0], SCOOP_EFFICIENCY_AOA_MAP[:, 1], kind='linear')
+    SCOOP_THROTTLE_DRAG_MULT_INTERP = interp1d(SCOOP_THROTTLE_DRAG_MULTIPLIER[:, 0], SCOOP_THROTTLE_DRAG_MULTIPLIER[:, 1], kind='linear')
+    SCOOP_EFF_DRAG_AREA_INTERP = interp1d(SCOOP_EFF_DRAG_AREA_M2_AOA_MAP[:, 0], SCOOP_EFF_DRAG_AREA_M2_AOA_MAP[:, 1], kind='linear')
+    SPACECRAFT_EFF_DRAG_AREA_INTERP = interp1d(SPACECRAFT_EFF_DRAG_AREA_M2_AOA_MAP[:, 0], SPACECRAFT_EFF_DRAG_AREA_M2_AOA_MAP[:, 1], kind='linear')
 
     # Simulation parameters
     TIMESTEP_SEC = timestep_sec       # Time step (s)
@@ -361,18 +375,6 @@ def main():
         state[ECI_UNIT_T[0]:ECI_UNIT_T[1]] = eci_unit_t  # ECI unit vector in tangential direction
         state[ECI_UNIT_N[0]:ECI_UNIT_N[1]] = eci_unit_n  # ECI unit vector in normal direction
 
-        # Drag perturbation
-        effective_drag_area_m2 = 50 #TODO: Implement effective drag area, mass and attitude
-        total_mass_kg = DRY_MASS_KG + state[PROPELLANT_MASS_KG[0]] + state[TAILING_MASS_KG[0]]
-        state[TOTAL_MASS_KG[0]:TOTAL_MASS_KG[1]] = total_mass_kg
-
-        drag_perturbation_km_per_s2 = (effective_drag_area_m2/total_mass_kg)*np.array([
-            np.dot(atmospheric_momentum_flux_Pa,eci_unit_r),  # Drag in x direction
-            np.dot(atmospheric_momentum_flux_Pa,eci_unit_t),  # Drag in y direction
-            np.dot(atmospheric_momentum_flux_Pa,eci_unit_n)   # Drag in z direction
-        ])*0.001
-        state[DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]] = drag_perturbation_km_per_s2  # Drag perturbation
-
         # Attitude Control
         # current_quat = schedule_interpolation(
         #     LVLH_QUAT_SCHEDULE,
@@ -406,12 +408,61 @@ def main():
         # print(f"{1-np.dot(body_to_eci_rot.apply(np.array([1,0,0])), eci_unit_t): .12f}")
 
         nose_vector = body_to_eci_rot.apply(np.array([1, 0, 0]))  # Nose vector in ECI frame
-        angle_of_attack = np.arctan2(
+        angle_of_attack_rad = np.arctan2(
             np.linalg.norm(np.cross(nose_vector,-atmospheric_momentum_flux_Pa)),
             np.dot(nose_vector,-atmospheric_momentum_flux_Pa)
         )
         # print(f"Angle of attack: {angle_of_attack} rad")
-        state[ANGLE_OF_ATTACK[0]:ANGLE_OF_ATTACK[1]] = angle_of_attack  # Angle of attack in radians
+        state[ANGLE_OF_ATTACK[0]:ANGLE_OF_ATTACK[1]] = angle_of_attack_rad  # Angle of attack in radians
+
+        aoa_deg = np.rad2deg(angle_of_attack_rad)
+        # print(f"Angle of attack: {aoa_deg} deg")
+        # Drag perturbation
+        scoop_throttle = scoop_throttle_controller(state, MAX_PROPELLANT_MASS_KG, MAX_TAILINGS_MASS_KG)  # Scoop throttle (0-1)
+        state[SCOOP_THROTTLE[0]:SCOOP_THROTTLE[1]] = scoop_throttle
+
+        scoop_effective_drag_area_m2 = SCOOP_EFF_DRAG_AREA_INTERP(aoa_deg) * SCOOP_THROTTLE_DRAG_MULT_INTERP(scoop_throttle)
+        spacecraft_effective_drag_area_m2 = SPACECRAFT_EFF_DRAG_AREA_INTERP(aoa_deg)
+        effective_drag_area_m2 = scoop_effective_drag_area_m2 + spacecraft_effective_drag_area_m2
+
+        state[SCOOP_EFF_DRAG_AREA_M2[0]:SCOOP_EFF_DRAG_AREA_M2[1]] = scoop_effective_drag_area_m2
+        state[SPACECRAFT_EFF_DRAG_AREA_M2[0]:SPACECRAFT_EFF_DRAG_AREA_M2[1]] = spacecraft_effective_drag_area_m2
+        state[EFFECTIVE_DRAG_AREA_M2[0]:EFFECTIVE_DRAG_AREA_M2[1]] = effective_drag_area_m2
+
+        propellant_mass_kg = state[PROPELLANT_MASS_KG[0]]  # Propellant mass (kg)
+        tailing_mass_kg = state[TAILING_MASS_KG[0]]  # Tailing mass (kg)
+        total_mass_kg = DRY_MASS_KG + propellant_mass_kg + tailing_mass_kg
+        state[TOTAL_MASS_KG[0]:TOTAL_MASS_KG[1]] = total_mass_kg
+
+        drag_perturbation_km_per_s2 = (effective_drag_area_m2/total_mass_kg)*np.array([
+            np.dot(atmospheric_momentum_flux_Pa,eci_unit_r),  # Drag in x direction
+            np.dot(atmospheric_momentum_flux_Pa,eci_unit_t),  # Drag in y direction
+            np.dot(atmospheric_momentum_flux_Pa,eci_unit_n)   # Drag in z direction
+        ])*0.001
+        state[DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]] = drag_perturbation_km_per_s2  # Drag perturbation
+
+        oxygen_mass_density_kg_per_m3 = (
+            species_density_per_m3[0][1] * MONOATOMIC_OXYGEN_MASS_KG
+            + species_density_per_m3[0][3] * OXYGEN_MOLECULE_MASS_KG
+        )
+
+        # Volatile Collection rates
+        scoop_efficiency = SCOOP_EFFICIENCY_INTERP(aoa_deg)  # Scoop efficiency
+        state[SCOOP_EFFICIENCY[0]:SCOOP_EFFICIENCY[1]] = scoop_efficiency  # Scoop efficiency
+
+        oxygen_mass_fraction = oxygen_mass_density_kg_per_m3 / atmospheric_mass_density_kg_per_m3
+        print(f"oxygen mass fraction: {oxygen_mass_fraction}")
+        state[CONDENSATE_PROPULSIVE_FRACTION[0]:CONDENSATE_PROPULSIVE_FRACTION[1]] = oxygen_mass_fraction  # Condensate propulsive fraction
+
+        atmospheric_mass_flux = atmospheric_mass_density_kg_per_m3 * airspeed_km_per_s
+        mass_collection_rate = scoop_throttle * atmospheric_mass_flux * SCOOP_COLLECTOR_AREA_M2 * scoop_efficiency * np.cos(angle_of_attack_rad)
+        state[MASS_COLLECTION_RATE_KG_S[0]:MASS_COLLECTION_RATE_KG_S[1]] = mass_collection_rate  # Mass collection rate
+
+        propellant_mass_collection_rate = mass_collection_rate * oxygen_mass_fraction * (propellant_mass_kg < MAX_PROPELLANT_MASS_KG)
+        tailing_mass_collection_rate = mass_collection_rate * (1 - oxygen_mass_fraction) * (tailing_mass_kg < MAX_TAILINGS_MASS_KG)
+
+        state[PROPELLANT_COLLECTION_RATE_KG_PER_S[0]:PROPELLANT_COLLECTION_RATE_KG_PER_S[1]] = propellant_mass_collection_rate  # Propellant mass collection rate
+        state[TAILINGS_COLLECTION_RATE_KG_PER_S[0]:TAILINGS_COLLECTION_RATE_KG_PER_S[1]] = tailing_mass_collection_rate  # Tailing mass collection rate
 
         # Store history
         history[i, 1:(len(state)+1)] = state
@@ -585,12 +636,12 @@ def main():
     plt.show()
     # Plot Mass Collection Rates over time
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, history[:, MASS_COLLECTION_RATE_KG_S[0]], color='blue', label='Mass Collection Rate')
-    ax.plot(mission_elapsed_time_days, history[:, PROPELLANT_COLLECTION_RATE_KG_S[0]], color='green', label='Propellant Collection Rate')
-    ax.plot(mission_elapsed_time_days, history[:, TAILINGS_COLLECTION_RATE_KG_S[0]], color='red', label='Tailings Collection Rate')
+    ax.plot(mission_elapsed_time_days, 1e6*history[:, MASS_COLLECTION_RATE_KG_S[0]], color='blue', label='Mass Collection Rate')
+    ax.plot(mission_elapsed_time_days, 1e6*history[:, PROPELLANT_COLLECTION_RATE_KG_PER_S[0]], color='green', label='Propellant Collection Rate')
+    ax.plot(mission_elapsed_time_days, 1e6*history[:, TAILINGS_COLLECTION_RATE_KG_PER_S[0]], color='red', label='Tailings Collection Rate')
     ax.set_title('Mass Collection Rates Over Time')
     ax.set_xlabel('Time (days)')
-    ax.set_ylabel('Mass Collection Rate (kg/s)')
+    ax.set_ylabel('Mass Collection Rate (mg/s)')
     ax.legend()
     plt.grid()
     plt.show()

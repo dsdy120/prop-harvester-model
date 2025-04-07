@@ -9,30 +9,31 @@
     ,"k": 0
     ,"l": 0
     ,"dry_mass_tons": 100
-    ,"max_propellant_mass_tons": 0
-    ,"max_tailings_mass_tons": 0
+    ,"max_propellant_mass_tons": 200
+    ,"max_tailings_mass_tons": 200
+    ,"scoop_collector_area_m2": 100
     ,"lvlh_quat_schedule": {
         "2025-04-01T00:00:00Z": [ -0.5, -0.5, 0.5, 0.5 ]
         ,"2999-12-31T23:59:59Z": [ -0.5, -0.5, 0.5, 0.5 ]
     }
-    ,"scoop_efficiency_aoa_map": {
-        "0.0": 1.0
-        ,"45.0": 0.0
-        ,"180.0": 0.0
-    }
-    ,"scoop_throttle_drag_multiplier": {
-        "0.0": 1.0
-        ,"1.0": 0.5
-    }
-    ,"scoop_effective_drag_area_m2_aoa_map": {
-        "0.0": 100.0
-        ,"90.0": 0.0
-        ,"180.0": 0.0
-    }
-    ,"spacecraft_effective_drag_area_m2_aoa_map": {
-        "0.0": 100.0
-        ,"90.0": 1000.0
-        ,"180.0": 100.0
-    }
+    ,"scoop_efficiency_aoa_map": [
+        [0.0, 1.0],
+        [45.0, 0.0],
+        [180.0, 0.0]
+    ]
+    ,"scoop_throttle_drag_multiplier": [
+        [0.0, 1.0],
+        [1.0, 0.5]
+    ]
+    ,"scoop_effective_drag_area_m2_aoa_map": [
+        [0.0, 100.0],
+        [90.0, 0.0],
+        [180.0, 0.0]
+    ]
+    ,"spacecraft_effective_drag_area_m2_aoa_map": [
+        [0.0, 100.0],
+        [90.0, 1000.0],
+        [180.0, 100.0]
+    ]
 
 }
