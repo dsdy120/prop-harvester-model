@@ -171,204 +171,208 @@ def main():
 
     # Run simulation
     for i in range(N_STEPS):
-        flag_terminate = False
-        if i % (N_STEPS // 100) == 0 or i == N_STEPS - 1:
-            print(f"{round(100*i/N_STEPS):3d}% : {datetimes[i].isoformat()}, Avg Alt: {state[MOD_EQUINOCTIAL_ELEMENTS[0]]-R_EARTH_KM: .3f} km, Propellant Mass: {state[PROPELLANT_MASS_KG[0]]: .3f} kg, Tailing Mass: {state[TAILING_MASS_KG[0]]: .3f} kg, Energy Stored: {state[ENERGY_STORED_J[0]]: .3f} J")
+        try:
+            flag_terminate = False
+            if i % (N_STEPS // 100) == 0 or i == N_STEPS - 1:
+                print(f"{round(100*i/N_STEPS):3d}% : {datetimes[i].isoformat()}, Avg Alt: {state[MOD_EQUINOCTIAL_ELEMENTS[0]]-R_EARTH_KM: .3f} km, Propellant Mass: {state[PROPELLANT_MASS_KG[0]]: .3f} kg, Tailing Mass: {state[TAILING_MASS_KG[0]]: .3f} kg, Energy Stored: {state[ENERGY_STORED_J[0]]: .3f} J")
 
-        if i > 0:
-            if state[ALT[0]] < 0.5 * KARMAN_ALT_KM:
-                print("Spacecraft has reentered the atmosphere.")
-                flag_terminate = True
+            if i > 0:
+                if state[ALT[0]] < 0.5 * KARMAN_ALT_KM:
+                    print("Spacecraft has reentered the atmosphere.")
+                    flag_terminate = True
 
-            if flag_terminate:
-                print(f"Step {i}/{N_STEPS}")
-                print("Simulation terminated.")
-                history = history[:i, :]  # Trim history to current step
-                break
+                if flag_terminate:
+                    print(f"Step {i}/{N_STEPS}")
+                    print("Simulation terminated.")
+                    history = history[:i, :]  # Trim history to current step
+                    break
 
-        # update Inputs
-        state[INPUT_STATE[0]:INPUT_STATE[1]] = history[i, INPUT_STATE[0]+1:INPUT_STATE[1]+1]  # Update input state
+            # update Inputs
+            state[INPUT_STATE[0]:INPUT_STATE[1]] = history[i, INPUT_STATE[0]+1:INPUT_STATE[1]+1]  # Update input state
 
-        state = rk4_step(state, TIMESTEP_SEC).flatten()
-        elements = state[:6]  # mod equinoctial elements
-        # Non-integrated quantities
-        current_time = datetimes[i]
-        # ECI position and velocity
+            state = rk4_step(state, TIMESTEP_SEC).flatten()
+            elements = state[:6]  # mod equinoctial elements
+            # Non-integrated quantities
+            current_time = datetimes[i]
+            # ECI position and velocity
 
-        eci_state_km = orb_mech_utils.mod_equinoctial_to_eci_state(
-            elements,
-            mu=MU_EARTH_KM3_PER_S2
-        ).flatten()
-        state[ECI_STATE[0]:ECI_STATE[1]] = eci_state_km  # ECI position and velocity
+            eci_state_km = orb_mech_utils.mod_equinoctial_to_eci_state(
+                elements,
+                mu=MU_EARTH_KM3_PER_S2
+            ).flatten()
+            state[ECI_STATE[0]:ECI_STATE[1]] = eci_state_km  # ECI position and velocity
 
-        # spec_energy = 0.5 * np.linalg.norm(eci_state_km[3:6])**2 - MU_EARTH_KM3_PER_S2 / np.linalg.norm(eci_state_km[0:3])
-        # print(spec_energy)
+            # spec_energy = 0.5 * np.linalg.norm(eci_state_km[3:6])**2 - MU_EARTH_KM3_PER_S2 / np.linalg.norm(eci_state_km[0:3])
+            # print(spec_energy)
 
-        # history[i, 7:13] = eci_state  # ECI position and velocity
-        # Geodetic position and velocity
-        lat_deg,lon_deg,alt_km = pymap3d.eci2geodetic(
-            eci_state_km[0]*1000,  # ECI position converted to meters
-            eci_state_km[1]*1000,
-            eci_state_km[2]*1000,
-            t=current_time,  # Time
-            deg=True
-        )
-        alt_km *= 0.001  # Convert to km
-        state[LAT[0]:LAT[1]] = lat_deg  # Latitude
-        state[LON[0]:LON[1]] = lon_deg  # Longitude
-        state[ALT[0]:ALT[1]] = alt_km  # Altitude
+            # history[i, 7:13] = eci_state  # ECI position and velocity
+            # Geodetic position and velocity
+            lat_deg,lon_deg,alt_km = pymap3d.eci2geodetic(
+                eci_state_km[0]*1000,  # ECI position converted to meters
+                eci_state_km[1]*1000,
+                eci_state_km[2]*1000,
+                t=current_time,  # Time
+                deg=True
+            )
+            alt_km *= 0.001  # Convert to km
+            state[LAT[0]:LAT[1]] = lat_deg  # Latitude
+            state[LON[0]:LON[1]] = lon_deg  # Longitude
+            state[ALT[0]:ALT[1]] = alt_km  # Altitude
 
-        ecef_position_km = np.array(pymap3d.eci2ecef(
-            *(eci_state_km[0:3]*1000),  # ECI position converted to meters
-            time=current_time,  # Time
-        )).flatten()*0.001
-        ecef_velocity_km_per_s = eci_state_km[3:6] + np.cross(
-            np.array([0, 0, -ANG_VEL_EARTH_RAD_PER_S]),  # Earth's rotation rate
-            ecef_position_km
-        )
-        state[ECEF_VEL[0]:ECEF_VEL[1]] = ecef_velocity_km_per_s  # ECEF velocity
-        # print(np.dot(ecef_velocity_km_per_s, eci_state_km[3:6])/(np.linalg.norm(ecef_velocity_km_per_s)*np.linalg.norm(eci_state_km[3:6])))
-        
-        species_density_per_m3 = nrlmsise00.msise_model(
-            current_time,
-            alt_km,
-            lat_deg,
-            lon_deg,
-            150, #TODO: Implement solar activity
-            150, #TODO: Implement solar activity
-            4,
-            flags=[1]*24
-        )
+            ecef_position_km = np.array(pymap3d.eci2ecef(
+                *(eci_state_km[0:3]*1000),  # ECI position converted to meters
+                time=current_time,  # Time
+            )).flatten()*0.001
+            ecef_velocity_km_per_s = eci_state_km[3:6] + np.cross(
+                np.array([0, 0, -ANG_VEL_EARTH_RAD_PER_S]),  # Earth's rotation rate
+                ecef_position_km
+            )
+            state[ECEF_VEL[0]:ECEF_VEL[1]] = ecef_velocity_km_per_s  # ECEF velocity
+            # print(np.dot(ecef_velocity_km_per_s, eci_state_km[3:6])/(np.linalg.norm(ecef_velocity_km_per_s)*np.linalg.norm(eci_state_km[3:6])))
+            
+            species_density_per_m3 = nrlmsise00.msise_model(
+                current_time,
+                alt_km,
+                lat_deg,
+                lon_deg,
+                150, #TODO: Implement solar activity
+                150, #TODO: Implement solar activity
+                4,
+                flags=[1]*24
+            )
 
-        atmospheric_mass_density_kg_per_m3:float = species_density_per_m3[0][5]
-        airspeed_km_per_s = np.linalg.norm(ecef_velocity_km_per_s[0:3])
-        atmospheric_momentum_flux_Pa = -0.5 * atmospheric_mass_density_kg_per_m3 * 1000 * airspeed_km_per_s * 1000 * ecef_velocity_km_per_s
-        # print(np.dot(atmospheric_momentum_flux_Pa, ecef_velocity_km_per_s)/(np.linalg.norm(atmospheric_momentum_flux_Pa)*np.linalg.norm(ecef_velocity_km_per_s)))
-        state[AIRSPEED_KM_PER_S[0]:AIRSPEED_KM_PER_S[1]] = airspeed_km_per_s  # Airspeed
-        state[ATMOSPHERIC_MASS_DENSITY[0]:ATMOSPHERIC_MASS_DENSITY[1]] = atmospheric_mass_density_kg_per_m3  # Atmospheric mass density
-        state[ATMOSPHERIC_MOMENTUM_FLUX[0]:ATMOSPHERIC_MOMENTUM_FLUX[1]] = atmospheric_momentum_flux_Pa  # Atmospheric momentum flux
+            atmospheric_mass_density_kg_per_m3:float = species_density_per_m3[0][5]
+            airspeed_km_per_s = np.linalg.norm(ecef_velocity_km_per_s[0:3])
+            atmospheric_momentum_flux_Pa = -0.5 * atmospheric_mass_density_kg_per_m3 * 1000 * airspeed_km_per_s * 1000 * ecef_velocity_km_per_s
+            # print(np.dot(atmospheric_momentum_flux_Pa, ecef_velocity_km_per_s)/(np.linalg.norm(atmospheric_momentum_flux_Pa)*np.linalg.norm(ecef_velocity_km_per_s)))
+            state[AIRSPEED_KM_PER_S[0]:AIRSPEED_KM_PER_S[1]] = airspeed_km_per_s  # Airspeed
+            state[ATMOSPHERIC_MASS_DENSITY[0]:ATMOSPHERIC_MASS_DENSITY[1]] = atmospheric_mass_density_kg_per_m3  # Atmospheric mass density
+            state[ATMOSPHERIC_MOMENTUM_FLUX[0]:ATMOSPHERIC_MOMENTUM_FLUX[1]] = atmospheric_momentum_flux_Pa  # Atmospheric momentum flux
 
-        eci_unit_r = eci_state_km[0:3] / np.linalg.norm(eci_state_km[0:3])
-        eci_unit_v = eci_state_km[3:6] / np.linalg.norm(eci_state_km[3:6])
-        eci_unit_n = np.cross(eci_unit_r, eci_unit_v)
-        eci_unit_t = np.cross(eci_unit_n, eci_unit_r)
-        # print(np.dot(eci_unit_v,eci_unit_t))
-        state[ECI_UNIT_R[0]:ECI_UNIT_R[1]] = eci_unit_r  # ECI unit vector in radial direction
-        state[ECI_UNIT_T[0]:ECI_UNIT_T[1]] = eci_unit_t  # ECI unit vector in tangential direction
-        state[ECI_UNIT_N[0]:ECI_UNIT_N[1]] = eci_unit_n  # ECI unit vector in normal direction
+            eci_unit_r = eci_state_km[0:3] / np.linalg.norm(eci_state_km[0:3])
+            eci_unit_v = eci_state_km[3:6] / np.linalg.norm(eci_state_km[3:6])
+            eci_unit_n = np.cross(eci_unit_r, eci_unit_v)
+            eci_unit_t = np.cross(eci_unit_n, eci_unit_r)
+            # print(np.dot(eci_unit_v,eci_unit_t))
+            state[ECI_UNIT_R[0]:ECI_UNIT_R[1]] = eci_unit_r  # ECI unit vector in radial direction
+            state[ECI_UNIT_T[0]:ECI_UNIT_T[1]] = eci_unit_t  # ECI unit vector in tangential direction
+            state[ECI_UNIT_N[0]:ECI_UNIT_N[1]] = eci_unit_n  # ECI unit vector in normal direction
 
-        # Attitude Control
-        # current_quat = schedule_interpolation(
-        #     LVLH_QUAT_SCHEDULE,
-        #     current_time,
-        #     interpolation_method=quaternion_slerp
-        # )
-        # current_rot:R = LVLH_QUAT_SLERP(current_time.timestamp())
-        # current_quat = current_rot.as_quat()
-        body_to_lvlh_quat = history[i, BODY_TO_LVLH_QUATERNION[0]+1:BODY_TO_LVLH_QUATERNION[1]+1]  # LVLH quaternion
-        body_to_lvlh_rot = R.from_quat(body_to_lvlh_quat)
-        # print(current_quat)
+            # Attitude Control
+            # current_quat = schedule_interpolation(
+            #     LVLH_QUAT_SCHEDULE,
+            #     current_time,
+            #     interpolation_method=quaternion_slerp
+            # )
+            # current_rot:R = LVLH_QUAT_SLERP(current_time.timestamp())
+            # current_quat = current_rot.as_quat()
+            body_to_lvlh_quat = history[i, BODY_TO_LVLH_QUATERNION[0]+1:BODY_TO_LVLH_QUATERNION[1]+1]  # LVLH quaternion
+            body_to_lvlh_rot = R.from_quat(body_to_lvlh_quat)
+            # print(current_quat)
 
-        # state[LVLH_QUATERNION[0]:LVLH_QUATERNION[1]] = current_quat  # LVLH quaternion
+            # state[LVLH_QUATERNION[0]:LVLH_QUATERNION[1]] = current_quat  # LVLH quaternion
 
-        lvlh_to_eci_rot = R.from_matrix(
-            np.array(
-                [
-                    eci_unit_r,
-                    eci_unit_t,
-                    eci_unit_n
-                ]
-            ).T
-        )
-        # print(np.cross((lvlh_to_eci_rot.apply(np.array([0,0,1]))), np.cross(eci_state_km[0:3],eci_state_km[3:6])))
+            lvlh_to_eci_rot = R.from_matrix(
+                np.array(
+                    [
+                        eci_unit_r,
+                        eci_unit_t,
+                        eci_unit_n
+                    ]
+                ).T
+            )
+            # print(np.cross((lvlh_to_eci_rot.apply(np.array([0,0,1]))), np.cross(eci_state_km[0:3],eci_state_km[3:6])))
 
-        body_to_eci_rot = lvlh_to_eci_rot * body_to_lvlh_rot
-        # print(eci_quat.as_quat())
-        state[ECI_QUATERNION[0]:ECI_QUATERNION[1]] = body_to_eci_rot.as_quat()  # ECI quaternion
-        # print(f"{1-np.dot(body_to_eci_rot.apply(np.array([0,0,1])), -eci_state_km[0:3]/np.linalg.norm(eci_state_km[0:3])): .12f}")
-        # print(f"{np.linalg.norm(np.cross(body_to_eci_rot.apply(np.array([0,1,0])), np.cross(eci_state_km[0:3],eci_state_km[3:6]))): .12f}")
-        # print(f"{1-np.dot(body_to_eci_rot.apply(np.array([1,0,0])), eci_unit_t): .12f}")
+            body_to_eci_rot = lvlh_to_eci_rot * body_to_lvlh_rot
+            # print(eci_quat.as_quat())
+            state[ECI_QUATERNION[0]:ECI_QUATERNION[1]] = body_to_eci_rot.as_quat()  # ECI quaternion
+            # print(f"{1-np.dot(body_to_eci_rot.apply(np.array([0,0,1])), -eci_state_km[0:3]/np.linalg.norm(eci_state_km[0:3])): .12f}")
+            # print(f"{np.linalg.norm(np.cross(body_to_eci_rot.apply(np.array([0,1,0])), np.cross(eci_state_km[0:3],eci_state_km[3:6]))): .12f}")
+            # print(f"{1-np.dot(body_to_eci_rot.apply(np.array([1,0,0])), eci_unit_t): .12f}")
 
-        nose_vector = body_to_eci_rot.apply(np.array([1, 0, 0]))  # Nose vector in ECI frame
-        angle_of_attack_rad = np.arctan2(
-            np.linalg.norm(np.cross(nose_vector,-atmospheric_momentum_flux_Pa)),
-            np.dot(nose_vector,-atmospheric_momentum_flux_Pa)
-        )
-        # print(f"Angle of attack: {angle_of_attack} rad")
-        state[ANGLE_OF_ATTACK[0]:ANGLE_OF_ATTACK[1]] = angle_of_attack_rad  # Angle of attack in radians
+            nose_vector = body_to_eci_rot.apply(np.array([1, 0, 0]))  # Nose vector in ECI frame
+            angle_of_attack_rad = np.arctan2(
+                np.linalg.norm(np.cross(nose_vector,-atmospheric_momentum_flux_Pa)),
+                np.dot(nose_vector,-atmospheric_momentum_flux_Pa)
+            )
+            # print(f"Angle of attack: {angle_of_attack} rad")
+            state[ANGLE_OF_ATTACK[0]:ANGLE_OF_ATTACK[1]] = angle_of_attack_rad  # Angle of attack in radians
 
-        aoa_deg = np.rad2deg(angle_of_attack_rad)
-        # print(f"Angle of attack: {aoa_deg} deg")
-        # Drag perturbation
-        scoop_throttle = scoop_throttle_controller(state, MAX_PROPELLANT_MASS_KG, MAX_TAILINGS_MASS_KG)  # Scoop throttle (0-1)
-        state[SCOOP_THROTTLE[0]:SCOOP_THROTTLE[1]] = scoop_throttle
+            aoa_deg = np.rad2deg(angle_of_attack_rad)
+            # print(f"Angle of attack: {aoa_deg} deg")
+            # Drag perturbation
+            scoop_throttle = scoop_throttle_controller(state, MAX_PROPELLANT_MASS_KG, MAX_TAILINGS_MASS_KG)  # Scoop throttle (0-1)
+            state[SCOOP_THROTTLE[0]:SCOOP_THROTTLE[1]] = scoop_throttle
 
-        scoop_effective_drag_area_m2 = SCOOP_EFF_DRAG_AREA_INTERP(aoa_deg) * SCOOP_THROTTLE_DRAG_MULT_INTERP(scoop_throttle)
-        spacecraft_effective_drag_area_m2 = SPACECRAFT_EFF_DRAG_AREA_INTERP(aoa_deg)
-        effective_drag_area_m2 = scoop_effective_drag_area_m2 + spacecraft_effective_drag_area_m2
+            scoop_effective_drag_area_m2 = SCOOP_EFF_DRAG_AREA_INTERP(aoa_deg) * SCOOP_THROTTLE_DRAG_MULT_INTERP(scoop_throttle)
+            spacecraft_effective_drag_area_m2 = SPACECRAFT_EFF_DRAG_AREA_INTERP(aoa_deg)
+            effective_drag_area_m2 = scoop_effective_drag_area_m2 + spacecraft_effective_drag_area_m2
 
-        state[SCOOP_EFF_DRAG_AREA_M2[0]:SCOOP_EFF_DRAG_AREA_M2[1]] = scoop_effective_drag_area_m2
-        state[SPACECRAFT_EFF_DRAG_AREA_M2[0]:SPACECRAFT_EFF_DRAG_AREA_M2[1]] = spacecraft_effective_drag_area_m2
-        state[EFFECTIVE_DRAG_AREA_M2[0]:EFFECTIVE_DRAG_AREA_M2[1]] = effective_drag_area_m2
+            state[SCOOP_EFF_DRAG_AREA_M2[0]:SCOOP_EFF_DRAG_AREA_M2[1]] = scoop_effective_drag_area_m2
+            state[SPACECRAFT_EFF_DRAG_AREA_M2[0]:SPACECRAFT_EFF_DRAG_AREA_M2[1]] = spacecraft_effective_drag_area_m2
+            state[EFFECTIVE_DRAG_AREA_M2[0]:EFFECTIVE_DRAG_AREA_M2[1]] = effective_drag_area_m2
 
-        propellant_mass_kg = state[PROPELLANT_MASS_KG[0]]  # Propellant mass (kg)
-        tailing_mass_kg = state[TAILING_MASS_KG[0]]  # Tailing mass (kg)
-        total_mass_kg = DRY_MASS_KG + propellant_mass_kg + tailing_mass_kg
-        state[TOTAL_MASS_KG[0]:TOTAL_MASS_KG[1]] = total_mass_kg
+            propellant_mass_kg = state[PROPELLANT_MASS_KG[0]]  # Propellant mass (kg)
+            tailing_mass_kg = state[TAILING_MASS_KG[0]]  # Tailing mass (kg)
+            total_mass_kg = DRY_MASS_KG + propellant_mass_kg + tailing_mass_kg
+            state[TOTAL_MASS_KG[0]:TOTAL_MASS_KG[1]] = total_mass_kg
 
-        ballistic_coefficient = total_mass_kg / effective_drag_area_m2
-        state[BALLISTIC_COEFFICIENT_KG_PER_M2[0]:BALLISTIC_COEFFICIENT_KG_PER_M2[1]] = ballistic_coefficient  # Ballistic coefficient
+            ballistic_coefficient = total_mass_kg / effective_drag_area_m2
+            state[BALLISTIC_COEFFICIENT_KG_PER_M2[0]:BALLISTIC_COEFFICIENT_KG_PER_M2[1]] = ballistic_coefficient  # Ballistic coefficient
 
-        drag_perturbation_km_per_s2 = (effective_drag_area_m2/total_mass_kg)*np.array([
-            np.dot(atmospheric_momentum_flux_Pa,eci_unit_r),  # Drag in x direction
-            np.dot(atmospheric_momentum_flux_Pa,eci_unit_t),  # Drag in y direction
-            np.dot(atmospheric_momentum_flux_Pa,eci_unit_n)   # Drag in z direction
-        ])*0.001
-        state[DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]] = drag_perturbation_km_per_s2  # Drag perturbation
+            drag_perturbation_km_per_s2 = (effective_drag_area_m2/total_mass_kg)*np.array([
+                np.dot(atmospheric_momentum_flux_Pa,eci_unit_r),  # Drag in x direction
+                np.dot(atmospheric_momentum_flux_Pa,eci_unit_t),  # Drag in y direction
+                np.dot(atmospheric_momentum_flux_Pa,eci_unit_n)   # Drag in z direction
+            ])*0.001
+            state[DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]] = drag_perturbation_km_per_s2  # Drag perturbation
 
-        oxygen_mass_density_kg_per_m3 = (
-            species_density_per_m3[0][1] * MONOATOMIC_OXYGEN_MASS_KG
-            + species_density_per_m3[0][3] * OXYGEN_MOLECULE_MASS_KG
-        )
+            oxygen_mass_density_kg_per_m3 = (
+                species_density_per_m3[0][1] * MONOATOMIC_OXYGEN_MASS_KG
+                + species_density_per_m3[0][3] * OXYGEN_MOLECULE_MASS_KG
+            )
 
-        # Volatile Collection rates
-        scoop_efficiency = SCOOP_EFFICIENCY_INTERP(aoa_deg)  # Scoop efficiency
-        state[SCOOP_EFFICIENCY[0]:SCOOP_EFFICIENCY[1]] = scoop_efficiency  # Scoop efficiency
+            # Volatile Collection rates
+            scoop_efficiency = SCOOP_EFFICIENCY_INTERP(aoa_deg)  # Scoop efficiency
+            state[SCOOP_EFFICIENCY[0]:SCOOP_EFFICIENCY[1]] = scoop_efficiency  # Scoop efficiency
 
-        oxygen_mass_fraction = oxygen_mass_density_kg_per_m3 / atmospheric_mass_density_kg_per_m3
-        # print(f"oxygen mass fraction: {oxygen_mass_fraction}")
-        state[CONDENSATE_PROPULSIVE_FRACTION[0]:CONDENSATE_PROPULSIVE_FRACTION[1]] = oxygen_mass_fraction  # Condensate propulsive fraction
+            oxygen_mass_fraction = oxygen_mass_density_kg_per_m3 / atmospheric_mass_density_kg_per_m3
+            # print(f"oxygen mass fraction: {oxygen_mass_fraction}")
+            state[CONDENSATE_PROPULSIVE_FRACTION[0]:CONDENSATE_PROPULSIVE_FRACTION[1]] = oxygen_mass_fraction  # Condensate propulsive fraction
 
-        atmospheric_mass_flux = atmospheric_mass_density_kg_per_m3 * airspeed_km_per_s
-        mass_collection_rate = scoop_throttle * atmospheric_mass_flux * SCOOP_COLLECTOR_AREA_M2 * scoop_efficiency * np.cos(angle_of_attack_rad)
-        state[MASS_COLLECTION_RATE_KG_S[0]:MASS_COLLECTION_RATE_KG_S[1]] = mass_collection_rate  # Mass collection rate
+            atmospheric_mass_flux = atmospheric_mass_density_kg_per_m3 * airspeed_km_per_s
+            mass_collection_rate = scoop_throttle * atmospheric_mass_flux * SCOOP_COLLECTOR_AREA_M2 * scoop_efficiency * np.cos(angle_of_attack_rad)
+            state[MASS_COLLECTION_RATE_KG_S[0]:MASS_COLLECTION_RATE_KG_S[1]] = mass_collection_rate  # Mass collection rate
 
-        propellant_mass_collection_rate = mass_collection_rate * oxygen_mass_fraction * (propellant_mass_kg < MAX_PROPELLANT_MASS_KG)
-        tailing_mass_collection_rate = mass_collection_rate * (1 - oxygen_mass_fraction) * (tailing_mass_kg < MAX_TAILINGS_MASS_KG)
+            propellant_mass_collection_rate = mass_collection_rate * oxygen_mass_fraction * (propellant_mass_kg < MAX_PROPELLANT_MASS_KG)
+            tailing_mass_collection_rate = mass_collection_rate * (1 - oxygen_mass_fraction) * (tailing_mass_kg < MAX_TAILINGS_MASS_KG)
 
-        state[PROPELLANT_COLLECTION_RATE_KG_PER_S[0]:PROPELLANT_COLLECTION_RATE_KG_PER_S[1]] = propellant_mass_collection_rate  # Propellant mass collection rate
-        state[TAILINGS_COLLECTION_RATE_KG_PER_S[0]:TAILINGS_COLLECTION_RATE_KG_PER_S[1]] = tailing_mass_collection_rate  # Tailing mass collection rate
+            state[PROPELLANT_COLLECTION_RATE_KG_PER_S[0]:PROPELLANT_COLLECTION_RATE_KG_PER_S[1]] = propellant_mass_collection_rate  # Propellant mass collection rate
+            state[TAILINGS_COLLECTION_RATE_KG_PER_S[0]:TAILINGS_COLLECTION_RATE_KG_PER_S[1]] = tailing_mass_collection_rate  # Tailing mass collection rate
 
-        # Thruster Operation
-        state[POWER_GENERATED_WATT[0]:POWER_GENERATED_WATT[1]] = MAX_THRUST_POWER_WATT  # Power generated (W) PLACEHOLDER TODO: Implement power generation
+            # Thruster Operation
+            state[POWER_GENERATED_WATT[0]:POWER_GENERATED_WATT[1]] = MAX_THRUST_POWER_WATT  # Power generated (W) PLACEHOLDER TODO: Implement power generation
 
-        power_output_watt, thrust_newtons, isp_sec = thruster_controller(state)
-        state[DERIVED_THRUST_POWER_WATT[0]:DERIVED_THRUST_POWER_WATT[1]] = power_output_watt  # Power output (W)
-        state[DERIVED_THRUST_FORCE_KN[0]:DERIVED_THRUST_FORCE_KN[1]] = thrust_newtons*0.001  # Thrust force (kN)
-        state[DERIVED_ISP_SEC[0]:DERIVED_ISP_SEC[1]] = isp_sec  # Specific impulse (s)
+            power_output_watt, thrust_newtons, isp_sec = thruster_controller(state)
+            state[DERIVED_THRUST_POWER_WATT[0]:DERIVED_THRUST_POWER_WATT[1]] = power_output_watt  # Power output (W)
+            state[DERIVED_THRUST_FORCE_KN[0]:DERIVED_THRUST_FORCE_KN[1]] = thrust_newtons*0.001  # Thrust force (kN)
+            state[DERIVED_ISP_SEC[0]:DERIVED_ISP_SEC[1]] = isp_sec  # Specific impulse (s)
 
-        propellant_drain_rate = thrust_newtons / (STANDARD_GRAVITY * isp_sec)  # Propellant drain rate (kg/s)
-        if np.isnan(propellant_drain_rate):
-            propellant_drain_rate = 0
-        state[PROPELLANT_DRAIN_RATE_KG_PER_S[0]:PROPELLANT_DRAIN_RATE_KG_PER_S[1]] = propellant_drain_rate  # Propellant drain rate (kg/s)
+            propellant_drain_rate = thrust_newtons / (STANDARD_GRAVITY * isp_sec)  # Propellant drain rate (kg/s)
+            if np.isnan(propellant_drain_rate):
+                propellant_drain_rate = 0
+            state[PROPELLANT_DRAIN_RATE_KG_PER_S[0]:PROPELLANT_DRAIN_RATE_KG_PER_S[1]] = propellant_drain_rate  # Propellant drain rate (kg/s)
 
-        lvlh_thrust_vector_kn = body_to_lvlh_rot.apply(BODY_FRAME_THRUST_VECTOR*thrust_newtons*0.001)  # Thrust vector in LVLH frame
-        thrust_perturbation_km_per_s2 = lvlh_thrust_vector_kn / total_mass_kg  # Thrust perturbation (km/s^2)
-        state[THRUST_PERTURBATION_KM_PER_S2[0]:THRUST_PERTURBATION_KM_PER_S2[1]] = thrust_perturbation_km_per_s2  # Thrust perturbation (km/s^2)
+            lvlh_thrust_vector_kn = body_to_lvlh_rot.apply(BODY_FRAME_THRUST_VECTOR*thrust_newtons*0.001)  # Thrust vector in LVLH frame
+            thrust_perturbation_km_per_s2 = lvlh_thrust_vector_kn / total_mass_kg  # Thrust perturbation (km/s^2)
+            state[THRUST_PERTURBATION_KM_PER_S2[0]:THRUST_PERTURBATION_KM_PER_S2[1]] = thrust_perturbation_km_per_s2  # Thrust perturbation (km/s^2)
 
-        # Store history
-        history[i, 1:(len(state)+1)] = state
-
+            # Store history
+            history[i, 1:(len(state)+1)] = state
+        except KeyboardInterrupt:
+            print(f"Simulation interrupted by user at step {i}/{N_STEPS}")
+            history = history[:i, :]  # Trim history to current step
+            break
 
     # Time Elapsed
     mission_elapsed_time_days = (history[:, 0] - history[0, 0])/86400  # Convert to days
@@ -533,11 +537,10 @@ def main():
     # drag_perturbation_magnitude = np.linalg.norm(history[:, DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]], axis=1)
 
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, history[:,DRAG_PERTURBATION_KM_PER_S2[0]+1], color='blue', label='Drag Perturbation')
-    ax.plot(mission_elapsed_time_days, history[:,THRUST_PERTURBATION_KM_PER_S2[0]+1], color='green', label='Thrust Perturbation')
-    ax.set_title('Tangential Perturbation Over Time')
+    ax.plot(mission_elapsed_time_days, np.abs(history[:,THRUST_PERTURBATION_KM_PER_S2[0]+1]/history[:,DRAG_PERTURBATION_KM_PER_S2[0]+1]), color='green', label='Thrust Perturbation',linestyle=':')
+    ax.set_title('Thrust / Drag Ratio Over Time')
     ax.set_xlabel('Time (days)')
-    ax.set_ylabel('Perturbation (km/s^2)')
+    ax.set_ylabel('Thrust to Drag Ratio')
     ax.set_yscale('log')
     ax.legend()
     plt.autoscale(tight=True)
@@ -559,6 +562,7 @@ def main():
     ax.set_ylabel('Mass Collection Rate (kg/s)\nMass (t)\nScoop Throttle (%)')
     ax.legend()
     plt.grid()
+    plt.autoscale()
     plt.show()
 
     # Plot Ballistic Coefficient over time
@@ -602,14 +606,12 @@ def scoop_throttle_controller(state:np.ndarray, max_propellant_kg, max_tailings_
     """
     Controller for the scoop throttle. Outputs a scalar value between 0 and 1.
 
-    Demo controller deactivates the scoop if all tanks are full or the thruster is off.
+    Demo controller deactivates the scoop if all tanks are full.
     """
     # dimension check
     if state.shape != SHAPE_STATE:
         raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
     
-    if state[DERIVED_THRUST_FORCE_KN[0]] <= 0.0:
-        return 0.0
     if state[PROPELLANT_MASS_KG[0]] <= max_propellant_kg:
         return 1.0
     if state[TAILING_MASS_KG[0]] <= max_tailings_kg:
