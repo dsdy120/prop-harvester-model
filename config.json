@@ -1,19 +1,20 @@
 {
     "start_iso_dt": "2025-04-01T00:00:00Z"
-    ,"end_iso_dt": "2025-04-21T00:00:00Z"
-    ,"timestep_sec": 30
-    ,"p": 6552
+    ,"end_iso_dt": "2026-04-01T00:00:00Z"
+    ,"timestep_sec": 75
+    ,"p": 6628
     ,"f": 0
     ,"g": 0
     ,"h": 1.12237539532
     ,"k": 0
     ,"l": 0
-    ,"dry_mass_tons": 100
-    ,"init_propellant_mass_tons": 0
-    ,"init_tailings_mass_tons": 0
-    ,"max_propellant_mass_tons": 200
-    ,"max_tailings_mass_tons": 200
-    ,"scoop_collector_area_m2": 100
+    ,"dry_mass_tons": 50
+    ,"init_propellant_mass_tons": 20
+    ,"init_tailings_mass_tons": 20
+    ,"init_energy_joules": 1e6
+    ,"max_propellant_mass_tons": 20
+    ,"max_tailings_mass_tons": 20
+    ,"scoop_collector_area_m2": 20
     ,"lvlh_quat_schedule": {
         "2025-04-01T00:00:00Z": [ -0.5, -0.5, 0.5, 0.5 ]
         ,"2999-12-31T23:59:59Z": [ -0.5, -0.5, 0.5, 0.5 ]
@@ -28,19 +29,19 @@
         [1.0, 0.5]
     ]
     ,"scoop_effective_drag_area_m2_aoa_map": [
-        [0.0, 100.0],
+        [0.0, 20.0],
         [90.0, 0.0],
         [180.0, 0.0]
     ]
     ,"spacecraft_effective_drag_area_m2_aoa_map": [
         [0.0, 0.0],
-        [90.0, 1000.0],
-        [180.0, 100.0]
+        [90.0, 10.0],
+        [180.0, 1.0]
     ]
     ,"body_frame_thrust_vector": [ 1.0, 0.0, 0.0 ]
     ,"max_isp_sec": 5000
-    ,"min_isp_sec": 1000
-    ,"max_thrust_power_watt": 2e8
+    ,"min_isp_sec": 500
+    ,"max_thrust_power_watt": 1e-5
     ,"thrust_power_schedule": {
         "2025-04-01T00:00:00Z": 1.0
         ,"2999-12-31T23:59:59Z": 1.0

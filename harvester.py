@@ -107,9 +107,11 @@ l = cfg["l"]  # True longitude (rad)
 
 DRY_MASS_KG = cfg["dry_mass_tons"]*1000  # Dry mass (tons)
 INIT_PROPELLANT_MASS_KG = cfg["init_propellant_mass_tons"]*1000  # Initial propellant mass (tons)
+INIT_TAILING_MASS_KG = cfg["init_tailings_mass_tons"]*1000  # Initial tailing mass (tons)
 MAX_PROPELLANT_MASS_KG = cfg["max_propellant_mass_tons"]*1000  # Max propellant mass (tons)
 MAX_TAILINGS_MASS_KG = cfg["max_tailings_mass_tons"]*1000  # Max tailings mass (tons)
 SCOOP_COLLECTOR_AREA_M2 = cfg["scoop_collector_area_m2"]  # Collector area (m^2)
+INIT_ENERGY_STORED_J = cfg["init_energy_joules"]  # Initial energy stored (J)
 
 # Input Schedules
 LVLH_QUAT_SCHEDULE:dict = {
@@ -156,8 +158,8 @@ def main():
     state = np.zeros(SHAPE_STATE[0]) 
     state[MOD_EQUINOCTIAL_ELEMENTS[0]:MOD_EQUINOCTIAL_ELEMENTS[1]] = (p, f, g, h, k, l)  # mod equinoctial elements
     state[PROPELLANT_MASS_KG[0]] = INIT_PROPELLANT_MASS_KG  # Initial propellant mass (kg)
-    state[TAILING_MASS_KG[0]] = 0.0  # Initial tailing mass (kg)
-    state[ENERGY_STORED_J[0]] = 0.0  # Initial energy stored (J)
+    state[TAILING_MASS_KG[0]] = INIT_TAILING_MASS_KG  # Initial tailing mass (kg)
+    state[ENERGY_STORED_J[0]] = INIT_ENERGY_STORED_J  # Initial energy stored (J)
 
     # Store simulation history
     history = np.zeros((N_STEPS, SHAPE_STATE[0]+1))  
@@ -170,8 +172,8 @@ def main():
     # Run simulation
     for i in range(N_STEPS):
         flag_terminate = False
-        if i % (N_STEPS/100) == 0:
-            print(f"Step {i}/{N_STEPS}: {datetimes[i].isoformat()}, Avg Alt: {state[MOD_EQUINOCTIAL_ELEMENTS[0]]-R_EARTH_KM: .3f} km, Propellant Mass: {state[PROPELLANT_MASS_KG[0]]: .3f} kg, Tailing Mass: {state[TAILING_MASS_KG[0]]: .3f} kg")
+        if i % (N_STEPS // 100) == 0 or i == N_STEPS - 1:
+            print(f"{round(100*i/N_STEPS):3d}% : {datetimes[i].isoformat()}, Avg Alt: {state[MOD_EQUINOCTIAL_ELEMENTS[0]]-R_EARTH_KM: .3f} km, Propellant Mass: {state[PROPELLANT_MASS_KG[0]]: .3f} kg, Tailing Mass: {state[TAILING_MASS_KG[0]]: .3f} kg, Energy Stored: {state[ENERGY_STORED_J[0]]: .3f} J")
 
         if i > 0:
             if state[ALT[0]] < 0.5 * KARMAN_ALT_KM:
@@ -373,6 +375,9 @@ def main():
 
     history = history[:,1:]
 
+    # Save results
+    np.savetxt("orbit_simulation.csv", history, delimiter=",", comments="")
+
     trajectory = history[:, ECI_STATE[0]:(ECI_STATE[0]+3)]  # ECI position
     # trajectory = np.zeros((N_STEPS, 3))
     # for i in range(N_STEPS):
@@ -403,8 +408,6 @@ def main():
     # Insert NaNs where jumps occur
     lat_lon_alt[1:][lon_diff > threshold,1] = np.nan
 
-    # Save results
-    np.savetxt("orbit_simulation.csv", history, delimiter=",", comments="")
 
     # Plot trajectory in 3D
     fig = plt.figure()
@@ -459,29 +462,32 @@ def main():
     # plt.tight_layout()
     # plt.show()
 
-    # Plot ground track against equirectangular projection of Earth
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(lat_lon_alt[:, 1], lat_lon_alt[:, 0],color='red')
-    ax.set_title('Ground Track')
-    ax.set_xlabel('Longitude (degrees)')
-    ax.set_ylabel('Latitude (degrees)')
-    ax.set_xlim(-180, 180)
-    ax.set_ylim(-90, 90)
-    ax.set_aspect('equal')
-    ax.grid()
-    img = plt.imread('Equirectangular_projection_SW.jpg')
-    ax.imshow(img, extent=(-180, 180, -90, 90), aspect='auto', zorder=-1)
-    plt.show()
+    # # Plot ground track against equirectangular projection of Earth
+    # fig, ax = plt.subplots(figsize=(10, 5))
+    # ax.plot(lat_lon_alt[:, 1], lat_lon_alt[:, 0],color='red')
+    # ax.set_title('Ground Track')
+    # ax.set_xlabel('Longitude (degrees)')
+    # ax.set_ylabel('Latitude (degrees)')
+    # ax.set_xlim(-180, 180)
+    # ax.set_ylim(-90, 90)
+    # ax.set_aspect('equal')
+    # ax.grid()
+    # img = plt.imread('Equirectangular_projection_SW.jpg')
+    # ax.imshow(img, extent=(-180, 180, -90, 90), aspect='auto', zorder=-1)
+    # plt.show()
 
 
     # Plot altitude over time
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, lat_lon_alt[:, 2], color='blue')
+    ax.plot(mission_elapsed_time_days, lat_lon_alt[:, 2], color='blue', label='Altitude (km)')
+    ax.plot(mission_elapsed_time_days, 100+100*history[:, THRUSTER_POWER_COMMAND[0]], color='green', label='Thrust Power Command %')
     # Plot Karman Line
     ax.axhline(y=KARMAN_ALT_KM, color='r', linestyle='--', label='Karman Line')
+    ax.axhline(y=p-R_EARTH_KM, color='g', linestyle='--', label='Initial Altitude')
     ax.set_title('Altitude Over Time')
     ax.set_xlabel('Time (days)')
     ax.set_ylabel('Altitude (km)')
+    ax.legend()
     plt.grid()
     plt.show()
 
@@ -524,15 +530,17 @@ def main():
     # plt.show()
 
     # Plot Drag Perturbation over time
-    drag_perturbation_magnitude = np.linalg.norm(history[:, DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]], axis=1)
+    # drag_perturbation_magnitude = np.linalg.norm(history[:, DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]], axis=1)
 
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, drag_perturbation_magnitude, color='blue', label='Drag Perturbation')
-    ax.set_title('Drag Perturbation Over Time')
+    ax.plot(mission_elapsed_time_days, history[:,DRAG_PERTURBATION_KM_PER_S2[0]+1], color='blue', label='Drag Perturbation')
+    ax.plot(mission_elapsed_time_days, history[:,THRUST_PERTURBATION_KM_PER_S2[0]+1], color='green', label='Thrust Perturbation')
+    ax.set_title('Tangential Perturbation Over Time')
     ax.set_xlabel('Time (days)')
-    ax.set_ylabel('Drag Perturbation (km/s^2)')
+    ax.set_ylabel('Perturbation (km/s^2)')
     ax.set_yscale('log')
     ax.legend()
+    plt.autoscale(tight=True)
     plt.grid()
     plt.show()
 
@@ -566,13 +574,13 @@ def thruster_controller(state:np.ndarray) -> np.ndarray:
     '''
     Controller for the thruster. Outputs a power(W)-thrust(N)-Isp(s) triplet given a thruster power schedule.
 
-    Demo controller outputs maximum thrust for power output level commanded and propellant collection flow.
+    Demo controller outputs maximum thrust for power output level commanded and propellant collection flow, while using bang-bang control to maintain semi-latus rectum.
     '''
     if state.shape != SHAPE_STATE:
         raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
 
     available_power_w = MAX_THRUST_POWER_WATT if not state[ENERGY_STORED_J[0]] < 0.0 else state[POWER_GENERATED_WATT[0]]
-    thruster_power_command = state[THRUSTER_POWER_COMMAND[0]]
+    thruster_power_command = state[THRUSTER_POWER_COMMAND[0]] if state[ALT[0]] < p - R_EARTH_KM else 0.0
     power_commanded = available_power_w * thruster_power_command
 
     if state[PROPELLANT_MASS_KG[0]] > 0.0:
