@@ -71,6 +71,7 @@ SCOOP_EFFICIENCY                        = (100, 101)
 SCOOP_EFF_DRAG_AREA_M2                  = (101, 102)
 SPACECRAFT_EFF_DRAG_AREA_M2             = (102, 103)
 EFFECTIVE_DRAG_AREA_M2                  = (103, 104)
+BALLISTIC_COEFFICIENT_KG_PER_M2          = (104, 105)
 
 
 INPUT_STATE                            = (150, 200)
@@ -434,6 +435,9 @@ def main():
         total_mass_kg = DRY_MASS_KG + propellant_mass_kg + tailing_mass_kg
         state[TOTAL_MASS_KG[0]:TOTAL_MASS_KG[1]] = total_mass_kg
 
+        ballistic_coefficient = total_mass_kg / effective_drag_area_m2
+        state[BALLISTIC_COEFFICIENT_KG_PER_M2[0]:BALLISTIC_COEFFICIENT_KG_PER_M2[1]] = ballistic_coefficient  # Ballistic coefficient
+
         drag_perturbation_km_per_s2 = (effective_drag_area_m2/total_mass_kg)*np.array([
             np.dot(atmospheric_momentum_flux_Pa,eci_unit_r),  # Drag in x direction
             np.dot(atmospheric_momentum_flux_Pa,eci_unit_t),  # Drag in y direction
@@ -451,7 +455,7 @@ def main():
         state[SCOOP_EFFICIENCY[0]:SCOOP_EFFICIENCY[1]] = scoop_efficiency  # Scoop efficiency
 
         oxygen_mass_fraction = oxygen_mass_density_kg_per_m3 / atmospheric_mass_density_kg_per_m3
-        print(f"oxygen mass fraction: {oxygen_mass_fraction}")
+        # print(f"oxygen mass fraction: {oxygen_mass_fraction}")
         state[CONDENSATE_PROPULSIVE_FRACTION[0]:CONDENSATE_PROPULSIVE_FRACTION[1]] = oxygen_mass_fraction  # Condensate propulsive fraction
 
         atmospheric_mass_flux = atmospheric_mass_density_kg_per_m3 * airspeed_km_per_s
@@ -529,35 +533,35 @@ def main():
     ax.set_title('3D Trajectory')
     plt.show()
 
-    # Plot elements over time in separate subplots
-    fig, axs = plt.subplots(3, 2, figsize=(12, 8))
-    axs[0, 0].plot(mission_elapsed_time_days, history[:, 1])
-    axs[0, 0].set_title('Semi-latus Rectum (p)')
-    axs[0, 0].set_xlabel('Time (days)')
-    axs[0, 0].set_ylabel('p (km)')
-    axs[0, 1].plot(mission_elapsed_time_days, history[:, 2])
-    axs[0, 1].set_title('Equinoctial Element f')
-    axs[0, 1].set_xlabel('Time (days)')
-    axs[0, 1].set_ylabel('f')
-    axs[1, 0].plot(mission_elapsed_time_days, history[:, 3])
-    axs[1, 0].set_title('Equinoctial Element g')
-    axs[1, 0].set_xlabel('Time (days)')
-    axs[1, 0].set_ylabel('g')
-    axs[1, 1].plot(mission_elapsed_time_days, history[:, 4])
-    axs[1, 1].set_title('Equinoctial Element h')
-    axs[1, 1].set_xlabel('Time (days)')
-    axs[1, 1].set_ylabel('h')
-    axs[2, 0].plot(mission_elapsed_time_days, history[:, 5])
-    axs[2, 0].set_title('Equinoctial Element k')
-    axs[2, 0].set_xlabel('Time (days)')
-    axs[2, 0].set_ylabel('k')
-    axs[2, 1].plot(mission_elapsed_time_days, history[:, 6])
-    axs[2, 1].set_title('True Longitude (l)')
-    axs[2, 1].set_xlabel('Time (days)')
-    axs[2, 1].set_ylabel('l (rad)')
+    # # Plot elements over time in separate subplots
+    # fig, axs = plt.subplots(3, 2, figsize=(12, 8))
+    # axs[0, 0].plot(mission_elapsed_time_days, history[:, 1])
+    # axs[0, 0].set_title('Semi-latus Rectum (p)')
+    # axs[0, 0].set_xlabel('Time (days)')
+    # axs[0, 0].set_ylabel('p (km)')
+    # axs[0, 1].plot(mission_elapsed_time_days, history[:, 2])
+    # axs[0, 1].set_title('Equinoctial Element f')
+    # axs[0, 1].set_xlabel('Time (days)')
+    # axs[0, 1].set_ylabel('f')
+    # axs[1, 0].plot(mission_elapsed_time_days, history[:, 3])
+    # axs[1, 0].set_title('Equinoctial Element g')
+    # axs[1, 0].set_xlabel('Time (days)')
+    # axs[1, 0].set_ylabel('g')
+    # axs[1, 1].plot(mission_elapsed_time_days, history[:, 4])
+    # axs[1, 1].set_title('Equinoctial Element h')
+    # axs[1, 1].set_xlabel('Time (days)')
+    # axs[1, 1].set_ylabel('h')
+    # axs[2, 0].plot(mission_elapsed_time_days, history[:, 5])
+    # axs[2, 0].set_title('Equinoctial Element k')
+    # axs[2, 0].set_xlabel('Time (days)')
+    # axs[2, 0].set_ylabel('k')
+    # axs[2, 1].plot(mission_elapsed_time_days, history[:, 6])
+    # axs[2, 1].set_title('True Longitude (l)')
+    # axs[2, 1].set_xlabel('Time (days)')
+    # axs[2, 1].set_ylabel('l (rad)')
 
-    plt.tight_layout()
-    plt.show()
+    # plt.tight_layout()
+    # plt.show()
 
     # Plot ground track against equirectangular projection of Earth
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -585,43 +589,44 @@ def main():
     plt.grid()
     plt.show()
 
-    # Plot Angle of Attack over time
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, np.rad2deg(history[:, ANGLE_OF_ATTACK[0]]), color='blue')
-    ax.set_title('Angle of Attack Over Time')
-    ax.set_xlabel('Time (days)')
-    ax.set_ylabel('Angle of Attack (deg)')
-    plt.grid()
-    plt.show()
-    # Plot Airspeed over time
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, history[:, AIRSPEED_KM_PER_S[0]], color='blue')
-    ax.set_title('Airspeed Over Time')
-    ax.set_xlabel('Time (days)')
-    ax.set_ylabel('Airspeed (km/s)')
-    plt.grid()
-    plt.show()
-    # Plot Atmospheric Mass Density over time
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, history[:, ATMOSPHERIC_MASS_DENSITY[0]], color='blue')
-    ax.set_title('Atmospheric Mass Density Over Time')
-    ax.set_xlabel('Time (days)')
-    ax.set_ylabel('Atmospheric Mass Density (kg/m^3)')
-    ax.set_yscale('log')
-    plt.grid()
-    plt.show()
-    # Plot Atmospheric Momentum Flux over time
-    atmospheric_momentum_flux_magnitude = history[:, ATMOSPHERIC_MOMENTUM_FLUX[0]:ATMOSPHERIC_MOMENTUM_FLUX[1]]
-    atmospheric_momentum_flux_magnitude = np.linalg.norm(atmospheric_momentum_flux_magnitude, axis=1)
+    # # Plot Angle of Attack over time
+    # fig, ax = plt.subplots(figsize=(8, 6))
+    # ax.plot(mission_elapsed_time_days, np.rad2deg(history[:, ANGLE_OF_ATTACK[0]]), color='blue')
+    # ax.set_title('Angle of Attack Over Time')
+    # ax.set_xlabel('Time (days)')
+    # ax.set_ylabel('Angle of Attack (deg)')
+    # plt.grid()
+    # plt.show()
+    # # Plot Airspeed over time
+    # fig, ax = plt.subplots(figsize=(8, 6))
+    # ax.plot(mission_elapsed_time_days, history[:, AIRSPEED_KM_PER_S[0]], color='blue')
+    # ax.set_title('Airspeed Over Time')
+    # ax.set_xlabel('Time (days)')
+    # ax.set_ylabel('Airspeed (km/s)')
+    # plt.grid()
+    # plt.show()
+    # # Plot Atmospheric Mass Density over time
+    # fig, ax = plt.subplots(figsize=(8, 6))
+    # ax.plot(mission_elapsed_time_days, history[:, ATMOSPHERIC_MASS_DENSITY[0]], color='blue')
+    # ax.set_title('Atmospheric Mass Density Over Time')
+    # ax.set_xlabel('Time (days)')
+    # ax.set_ylabel('Atmospheric Mass Density (kg/m^3)')
+    # ax.set_yscale('log')
+    # plt.grid()
+    # plt.show()
+    # # Plot Atmospheric Momentum Flux over time
+    # atmospheric_momentum_flux_magnitude = history[:, ATMOSPHERIC_MOMENTUM_FLUX[0]:ATMOSPHERIC_MOMENTUM_FLUX[1]]
+    # atmospheric_momentum_flux_magnitude = np.linalg.norm(atmospheric_momentum_flux_magnitude, axis=1)
 
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, atmospheric_momentum_flux_magnitude, color='blue')
-    ax.set_title('Atmospheric Momentum Flux Over Time')
-    ax.set_xlabel('Time (days)')
-    ax.set_ylabel('Atmospheric Momentum Flux (Pa)')
-    ax.set_yscale('log')
-    plt.grid()
-    plt.show()
+    # fig, ax = plt.subplots(figsize=(8, 6))
+    # ax.plot(mission_elapsed_time_days, atmospheric_momentum_flux_magnitude, color='blue')
+    # ax.set_title('Atmospheric Momentum Flux Over Time')
+    # ax.set_xlabel('Time (days)')
+    # ax.set_ylabel('Atmospheric Momentum Flux (Pa)')
+    # ax.set_yscale('log')
+    # plt.grid()
+    # plt.show()
+
     # Plot Drag Perturbation over time
     drag_perturbation_magnitude = np.linalg.norm(history[:, DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]], axis=1)
 
@@ -634,25 +639,34 @@ def main():
     ax.legend()
     plt.grid()
     plt.show()
+
     # Plot Mass Collection Rates over time
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, 1e6*history[:, MASS_COLLECTION_RATE_KG_S[0]], color='blue', label='Mass Collection Rate')
-    ax.plot(mission_elapsed_time_days, 1e6*history[:, PROPELLANT_COLLECTION_RATE_KG_PER_S[0]], color='green', label='Propellant Collection Rate')
-    ax.plot(mission_elapsed_time_days, 1e6*history[:, TAILINGS_COLLECTION_RATE_KG_PER_S[0]], color='red', label='Tailings Collection Rate')
+    ax.plot(mission_elapsed_time_days, history[:, MASS_COLLECTION_RATE_KG_S[0]], color='blue', label='Mass Collection Rate')
+    ax.plot(mission_elapsed_time_days, history[:, PROPELLANT_COLLECTION_RATE_KG_PER_S[0]], color='green', label='Propellant Collection Rate')
+    ax.plot(mission_elapsed_time_days, history[:, TAILINGS_COLLECTION_RATE_KG_PER_S[0]], color='red', label='Tailings Collection Rate')
+    ax.plot(mission_elapsed_time_days, 0.001*history[:, PROPELLANT_MASS_KG[0]], color='purple', label='Propellant Mass')
+    ax.plot(mission_elapsed_time_days, 0.001*history[:, TAILING_MASS_KG[0]], color='orange', label='Tailings Mass')
+    ax.plot(mission_elapsed_time_days, 0.001*history[:, TOTAL_MASS_KG[0]], color='yellow', label='Total Mass')
+    ax.plot(mission_elapsed_time_days, 100*history[:, SCOOP_THROTTLE[0]], color='black', label='Scoop Throttle')
+
     ax.set_title('Mass Collection Rates Over Time')
     ax.set_xlabel('Time (days)')
-    ax.set_ylabel('Mass Collection Rate (mg/s)')
+    ax.set_ylabel('Mass Collection Rate (kg/s)\nMass (t)\nScoop Throttle (%)')
     ax.legend()
     plt.grid()
     plt.show()
-    # Plot Total Mass over time
+
+    # Plot Ballistic Coefficient over time
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(mission_elapsed_time_days, history[:, TOTAL_MASS_KG[0]], color='blue')
-    ax.set_title('Total Mass Over Time')
+    ax.plot(mission_elapsed_time_days, history[:, BALLISTIC_COEFFICIENT_KG_PER_M2[0]], color='blue')
+    ax.set_title('Ballistic Coefficient Over Time')
     ax.set_xlabel('Time (days)')
-    ax.set_ylabel('Total Mass (kg)')
+    ax.set_ylabel('Ballistic Coefficient (kg/m^2)')
     plt.grid()
     plt.show()
+
+
 
 if __name__ == "__main__":
     main()
