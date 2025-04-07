@@ -8,12 +8,12 @@
     ,"h": 1.12237539532
     ,"k": 0
     ,"l": 0
-    ,"dry_mass_tons": 50
-    ,"init_propellant_mass_tons": 20
-    ,"init_tailings_mass_tons": 20
+    ,"dry_mass_tons": 20
+    ,"init_propellant_mass_tons": 1
+    ,"init_tailings_mass_tons": 1
     ,"init_energy_joules": 1e6
-    ,"max_propellant_mass_tons": 20
-    ,"max_tailings_mass_tons": 20
+    ,"max_propellant_mass_tons": 1
+    ,"max_tailings_mass_tons": 1
     ,"scoop_collector_area_m2": 20
     ,"lvlh_quat_schedule": {
         "2025-04-01T00:00:00Z": [ -0.5, -0.5, 0.5, 0.5 ]
@@ -40,8 +40,8 @@
     ]
     ,"body_frame_thrust_vector": [ 1.0, 0.0, 0.0 ]
     ,"max_isp_sec": 5000
-    ,"min_isp_sec": 500
-    ,"max_thrust_power_watt": 1e-5
+    ,"min_isp_sec": 4000
+    ,"max_thrust_power_watt": 2e5
     ,"thrust_power_schedule": {
         "2025-04-01T00:00:00Z": 1.0
         ,"2999-12-31T23:59:59Z": 1.0

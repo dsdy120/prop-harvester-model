@@ -574,13 +574,14 @@ def thruster_controller(state:np.ndarray) -> np.ndarray:
     '''
     Controller for the thruster. Outputs a power(W)-thrust(N)-Isp(s) triplet given a thruster power schedule.
 
-    Demo controller outputs maximum thrust for power output level commanded and propellant collection flow, while using bang-bang control to maintain semi-latus rectum.
+    Demo controller outputs maximum thrust for power output level commanded and propellant collection flow, 
+    while using bang-bang control to maintain semi-latus rectum.
     '''
     if state.shape != SHAPE_STATE:
         raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
 
     available_power_w = MAX_THRUST_POWER_WATT if not state[ENERGY_STORED_J[0]] < 0.0 else state[POWER_GENERATED_WATT[0]]
-    thruster_power_command = state[THRUSTER_POWER_COMMAND[0]] if state[ALT[0]] < p - R_EARTH_KM else 0.0
+    thruster_power_command = state[THRUSTER_POWER_COMMAND[0]] #if state[ALT[0]] < p - R_EARTH_KM else 0.0
     power_commanded = available_power_w * thruster_power_command
 
     if state[PROPELLANT_MASS_KG[0]] > 0.0:
@@ -601,13 +602,13 @@ def scoop_throttle_controller(state:np.ndarray, max_propellant_kg, max_tailings_
     """
     Controller for the scoop throttle. Outputs a scalar value between 0 and 1.
 
-    Demo controller deactivates the scoop if all tanks are full or the scoop is at zero efficiency.
+    Demo controller deactivates the scoop if all tanks are full or the thruster is off.
     """
     # dimension check
     if state.shape != SHAPE_STATE:
         raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
     
-    if state[SCOOP_EFFICIENCY[0]] <= 0.0:
+    if state[DERIVED_THRUST_FORCE_KN[0]] <= 0.0:
         return 0.0
     if state[PROPELLANT_MASS_KG[0]] <= max_propellant_kg:
         return 1.0
