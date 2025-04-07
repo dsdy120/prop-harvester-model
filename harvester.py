@@ -2,12 +2,11 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import nrlmsise00
-import scipy.interpolate
 from scipy.sparse.linalg import gmres
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 from scipy.interpolate import interp1d
-import scipy.spatial.transform
+from scipy.integrate import DOP853
 import orb_mech_utils
 import sys
 import json
@@ -174,7 +173,7 @@ def main():
         try:
             flag_terminate = False
             if i % (N_STEPS // 100) == 0 or i == N_STEPS - 1:
-                print(f"{round(100*i/N_STEPS):3d}% : {datetimes[i].isoformat()}, Avg Alt: {state[MOD_EQUINOCTIAL_ELEMENTS[0]]-R_EARTH_KM: .3f} km, Propellant Mass: {state[PROPELLANT_MASS_KG[0]]: .3f} kg, Tailing Mass: {state[TAILING_MASS_KG[0]]: .3f} kg, Energy Stored: {state[ENERGY_STORED_J[0]]: .3f} J")
+                print(f"{round(100*i/N_STEPS):3d}% : {datetimes[i].isoformat()}, Avg Alt: {state[MOD_EQUINOCTIAL_ELEMENTS[0]]-R_EARTH_KM: .6f} km, Propellant Mass: {state[PROPELLANT_MASS_KG[0]]: .6f} kg, Tailing Mass: {state[TAILING_MASS_KG[0]]: .6f} kg, Energy Stored: {state[ENERGY_STORED_J[0]]: .6f} J")
 
             if i > 0:
                 if state[ALT[0]] < 0.5 * KARMAN_ALT_KM:
@@ -187,13 +186,18 @@ def main():
                     history = history[:i, :]  # Trim history to current step
                     break
 
+            # Non-integrated quantities
+            current_time = datetimes[i]
             # update Inputs
             state[INPUT_STATE[0]:INPUT_STATE[1]] = history[i, INPUT_STATE[0]+1:INPUT_STATE[1]+1]  # Update input state
 
-            state = rk4_step(state, TIMESTEP_SEC).flatten()
+            integrator = DOP853(derivative, current_time.timestamp(),state,current_time.timestamp()+TIMESTEP_SEC)  # Integrate state using DOP853
+            while integrator.status == "running":
+                integrator.step()
+                # print("Integrating...\r", end="")
+            state = integrator.y
+            
             elements = state[:6]  # mod equinoctial elements
-            # Non-integrated quantities
-            current_time = datetimes[i]
             # ECI position and velocity
 
             eci_state_km = orb_mech_utils.mod_equinoctial_to_eci_state(
@@ -655,7 +659,7 @@ def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
     return total_perturbation  # Placeholder for perturbation vector
 
 # Function computing derivatives for RK4
-def derivative(state:np.ndarray) -> np.ndarray:
+def derivative(t,state:np.ndarray) -> np.ndarray:
     # dimension check
     if state.shape != SHAPE_STATE:
         raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
@@ -701,13 +705,13 @@ def derivative(state:np.ndarray) -> np.ndarray:
     return total_derivative  # Placeholder for derivatives
 
 # RK4 Integrator
-def rk4_step(state:np.ndarray, dt:float) -> np.ndarray:
+# def rk4_step(state:np.ndarray, dt:float) -> np.ndarray:
 
-    k1 = derivative(state)
-    k2 = derivative(state + 0.5 * dt * k1)
-    k3 = derivative(state + 0.5 * dt * k2)
-    k4 = derivative(state + dt * k3)
-    return state + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
+#     k1 = derivative(state)
+#     k2 = derivative(state + 0.5 * dt * k1)
+#     k3 = derivative(state + 0.5 * dt * k2)
+#     k4 = derivative(state + dt * k3)
+#     return state + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
 
 
 if __name__ == "__main__":
