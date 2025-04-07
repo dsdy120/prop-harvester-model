@@ -9,6 +9,8 @@
     ,"k": 0
     ,"l": 0
     ,"dry_mass_tons": 100
+    ,"init_propellant_mass_tons": 0
+    ,"init_tailings_mass_tons": 0
     ,"max_propellant_mass_tons": 200
     ,"max_tailings_mass_tons": 200
     ,"scoop_collector_area_m2": 100
@@ -31,9 +33,16 @@
         [180.0, 0.0]
     ]
     ,"spacecraft_effective_drag_area_m2_aoa_map": [
-        [0.0, 100.0],
+        [0.0, 0.0],
         [90.0, 1000.0],
         [180.0, 100.0]
     ]
-
+    ,"body_frame_thrust_vector": [ 1.0, 0.0, 0.0 ]
+    ,"max_isp_sec": 5000
+    ,"min_isp_sec": 1000
+    ,"max_thrust_power_watt": 2e8
+    ,"thrust_power_schedule": {
+        "2025-04-01T00:00:00Z": 1.0
+        ,"2999-12-31T23:59:59Z": 1.0
+    }
 }

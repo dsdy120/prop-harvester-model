@@ -23,6 +23,7 @@ R_EARTH_KM = 6378.137  # km
 J2_EARTH = 1.08262668e-3  # J2 coefficient for Earth
 F_EARTH = 0.003352810664747480  # Flattening factor for Earth
 ANG_VEL_EARTH_RAD_PER_S = 7.2921159e-5  # rad/s, Earth's angular velocity
+STANDARD_GRAVITY = 9.80665  # m/s^2, standard gravity
 
 # Atmospheric parameters
 KARMAN_ALT_KM = 100.0  # km, Karman line
@@ -40,8 +41,8 @@ INTEGRABLE_STATE                        = (0, 50)
 
 MOD_EQUINOCTIAL_ELEMENTS                = (0, 6)
 PROPELLANT_MASS_KG                      = (6, 7)
-TAILING_MASS_KG                            = (7, 8)
-
+TAILING_MASS_KG                         = (7, 8)
+ENERGY_STORED_J                         = (8, 9)
 
 INSTANTANEOUS_STATE                     = (50, 150)
 
@@ -60,228 +61,103 @@ DRAG_PERTURBATION_KM_PER_S2             = (76, 79)
 CONDENSATE_PROPULSIVE_FRACTION          = (79, 80)
 SCOOP_THROTTLE                          = (80, 81)
 ANGLE_OF_ATTACK                         = (81, 82)
-ECI_QUATERNION                          = (86, 90)  # Gap here: indices 82-85 are missing
+# Gap here: indices 82-85 are unused
+ECI_QUATERNION                          = (86, 90)
 ECI_BODY_RATES                          = (90, 93)
 ECI_NET_BODY_TORQUES                    = (93, 96)
 MASS_COLLECTION_RATE_KG_S               = (96, 97)
-PROPELLANT_COLLECTION_RATE_KG_PER_S         = (97, 98)
-TAILINGS_COLLECTION_RATE_KG_PER_S           = (98, 99)
+PROPELLANT_COLLECTION_RATE_KG_PER_S     = (97, 98)
+TAILINGS_COLLECTION_RATE_KG_PER_S       = (98, 99)
 TOTAL_MASS_KG                           = (99, 100)
 SCOOP_EFFICIENCY                        = (100, 101)
 SCOOP_EFF_DRAG_AREA_M2                  = (101, 102)
 SPACECRAFT_EFF_DRAG_AREA_M2             = (102, 103)
 EFFECTIVE_DRAG_AREA_M2                  = (103, 104)
-BALLISTIC_COEFFICIENT_KG_PER_M2          = (104, 105)
+BALLISTIC_COEFFICIENT_KG_PER_M2         = (104, 105)
+THRUST_PERTURBATION_KM_PER_S2           = (105, 108)
+DERIVED_THRUST_POWER_WATT               = (108, 109)
+DERIVED_THRUST_FORCE_KN                 = (109, 110)
+DERIVED_ISP_SEC                         = (110, 111)
+POWER_GENERATED_WATT                    = (111, 112)
+PROPELLANT_DRAIN_RATE_KG_PER_S          = (112, 113)
 
 
-INPUT_STATE                            = (150, 200)
-BODY_TO_LVLH_QUATERNION                         = (150, 154)
+INPUT_STATE                             = (150, 200)
+BODY_TO_LVLH_QUATERNION                 = (150, 154)
+THRUSTER_POWER_COMMAND                  = (154, 155)
 
 
 SHAPE_PERTURBATION = (3,)  # Perturbation dimension (e.g., atmospheric drag)
 
-def scoop_throttle_controller(state:np.ndarray, max_propellant_kg, max_tailings_kg) -> np.float64:
-    """
-    Controller for the scoop throttle. Outputs a scalar value between 0 and 1.
+# Set up simulation parameters
+cfg_file_name = sys.argv[1] if len(sys.argv) > 1 else "config.json"
+with open(cfg_file_name) as f:
+    cfg = json.load(f)
 
-    Demo controller deactivates the scoop if all tanks are full or the scoop is at zero efficiency.
-    """
-    # dimension check
-    if state.shape != SHAPE_OUTPUT:
-        raise ValueError(f"State vector must have {SHAPE_OUTPUT} elements, currently has {state.shape} elements.")
-    
-    if state[SCOOP_EFFICIENCY[0]] <= 0.0:
-        return 0.0
-    if state[PROPELLANT_MASS_KG[0]] <= max_propellant_kg:
-        return 1.0
-    if state[TAILING_MASS_KG[0]] <= max_tailings_kg:
-        return 1.0
+# Load configuration parameters
+start_dt = datetime.datetime.fromisoformat(cfg["start_iso_dt"])
+end_dt = datetime.datetime.fromisoformat(cfg["end_iso_dt"])
+timestep_sec = cfg["timestep_sec"]
+p = cfg["p"]  # Semi-latus rectum (km)
+f = cfg["f"]  # Equinoctial element f
+g = cfg["g"]  # Equinoctial element g
+h = cfg["h"]  # Equinoctial element h
+k = cfg["k"]  # Equinoctial element k
+l = cfg["l"]  # True longitude (rad)
 
-    return 0.0
+DRY_MASS_KG = cfg["dry_mass_tons"]*1000  # Dry mass (tons)
+INIT_PROPELLANT_MASS_KG = cfg["init_propellant_mass_tons"]*1000  # Initial propellant mass (tons)
+MAX_PROPELLANT_MASS_KG = cfg["max_propellant_mass_tons"]*1000  # Max propellant mass (tons)
+MAX_TAILINGS_MASS_KG = cfg["max_tailings_mass_tons"]*1000  # Max tailings mass (tons)
+SCOOP_COLLECTOR_AREA_M2 = cfg["scoop_collector_area_m2"]  # Collector area (m^2)
 
-# Define perturbation (extendable)
-def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
-    # dimension check
-    if state.shape != SHAPE_OUTPUT:
-        raise ValueError(f"State vector must have {SHAPE_OUTPUT} elements, currently has {state.shape} elements.")
-    
-    # Unpack state vector
-    elements = state[0:6]  # mod equinoctial elements
+# Input Schedules
+LVLH_QUAT_SCHEDULE:dict = {
+    datetime.datetime.fromisoformat(k).timestamp(): np.array(v) for k,v in cfg["lvlh_quat_schedule"].items()
+}
+LVLH_QUAT_TIMES = [i for i in LVLH_QUAT_SCHEDULE.keys()]
+LVLH_QUAT_ROTATIONS = R.from_quat(np.array([i for i in LVLH_QUAT_SCHEDULE.values()]))
+LVLH_QUAT_SLERP = Slerp(LVLH_QUAT_TIMES, LVLH_QUAT_ROTATIONS)
 
-    p, f, g, h, k, l = elements
-    w = orb_mech_utils.w_from_mod_equinoctial(elements)
-    r = p/w  # radius in km
+# Scoop parameters
+SCOOP_EFFICIENCY_AOA_MAP = np.array(cfg["scoop_efficiency_aoa_map"])
 
-    perturbation_j2_km_per_s2 = np.array([
-        -3/2 * J2_EARTH * MU_EARTH_KM3_PER_S2 * (R_EARTH_KM/(r**2))**2 * (1 - 12*(h*np.sin(l) - k*np.cos(l))**2/(1 + h**2 + k**2)**2),
-        -12 * J2_EARTH * MU_EARTH_KM3_PER_S2 * (R_EARTH_KM/(r**2))**2 * (h*np.sin(l) - k*np.cos(l))*(h*np.cos(l) + k*np.sin(l))/(1 + h**2 + k**2)**2,
-        -6 * J2_EARTH * MU_EARTH_KM3_PER_S2 * (R_EARTH_KM/(r**2))**2 * (1 - h**2 - k**2) * (h*np.sin(l) - k*np.cos(l))/(1 + h**2 + k**2)**2
-    ])
+SCOOP_THROTTLE_DRAG_MULTIPLIER = np.array(cfg["scoop_throttle_drag_multiplier"])
 
-    drag_perturbation_km_per_s2 = state[DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]]  # Drag perturbation in km/s^2
+SCOOP_EFF_DRAG_AREA_M2_AOA_MAP = np.array(cfg["scoop_effective_drag_area_m2_aoa_map"])
 
-    # print(atmospheric_momentum_flux_Pa)
-    # print((drag_perturbation_km_per_s2))
+SPACECRAFT_EFF_DRAG_AREA_M2_AOA_MAP = np.array(cfg["spacecraft_effective_drag_area_m2_aoa_map"])
 
-    # total_perturbation = np.zeros(SHAPE_PERTURBATION)
-    total_perturbation = perturbation_j2_km_per_s2 + drag_perturbation_km_per_s2
+SCOOP_EFFICIENCY_INTERP = interp1d(SCOOP_EFFICIENCY_AOA_MAP[:, 0], SCOOP_EFFICIENCY_AOA_MAP[:, 1], kind='linear')
+SCOOP_THROTTLE_DRAG_MULT_INTERP = interp1d(SCOOP_THROTTLE_DRAG_MULTIPLIER[:, 0], SCOOP_THROTTLE_DRAG_MULTIPLIER[:, 1], kind='linear')
+SCOOP_EFF_DRAG_AREA_INTERP = interp1d(SCOOP_EFF_DRAG_AREA_M2_AOA_MAP[:, 0], SCOOP_EFF_DRAG_AREA_M2_AOA_MAP[:, 1], kind='linear')
+SPACECRAFT_EFF_DRAG_AREA_INTERP = interp1d(SPACECRAFT_EFF_DRAG_AREA_M2_AOA_MAP[:, 0], SPACECRAFT_EFF_DRAG_AREA_M2_AOA_MAP[:, 1], kind='linear')
 
-    return total_perturbation  # Placeholder for perturbation vector
+# Thruster parameters
+BODY_FRAME_THRUST_VECTOR = np.array(cfg["body_frame_thrust_vector"])  # Thrust vector in body frame (unit vector)
+MAX_ISP_SEC = cfg["max_isp_sec"]  # Maximum specific impulse (s)
+MIN_ISP_SEC = cfg["min_isp_sec"]  # Minimum specific impulse (s)
+MAX_THRUST_POWER_WATT = cfg["max_thrust_power_watt"]  # Maximum thrust power (W)
+THRUST_POWER_SCHEDULE = {
+    datetime.datetime.fromisoformat(k).timestamp(): v for k,v in cfg["thrust_power_schedule"].items()
+}
+THRUST_POWER_TIMES = [i for i in THRUST_POWER_SCHEDULE.keys()]
+THRUST_POWER_COMMANDS = np.array([i for i in THRUST_POWER_SCHEDULE.values()])
+THRUST_POWER_INTERP = interp1d(THRUST_POWER_TIMES, THRUST_POWER_COMMANDS, kind='linear')
 
-# Function computing derivatives for RK4
-def derivative(state:np.ndarray) -> np.ndarray:
-    # dimension check
-    if state.shape != SHAPE_OUTPUT:
-        raise ValueError(f"State vector must have {SHAPE_OUTPUT} elements, currently has {state.shape} elements.")
-    
-    # Unpack state vector
-    flat_state = state.flatten()
-    elements = flat_state[0:6]  # mod equinoctial elements
-
-    p, f, g, h, k, l = elements
-    w = orb_mech_utils.w_from_mod_equinoctial(elements)
-    s_squared = orb_mech_utils.s_squared_from_mod_equinoctial(elements)
-
-    deriv_two_body = np.zeros(SHAPE_OUTPUT)
-    deriv_two_body[5] = np.sqrt(MU_EARTH_KM3_PER_S2 * p)*(w/p)**2
-
-    p_r,p_t,p_n = perturbation_lvlh(state)
-
-    deriv_perturbation_lvlh = np.zeros(SHAPE_OUTPUT)
-    deriv_perturbation_lvlh[:6] = [
-        (2*p)/w*np.sqrt(p/MU_EARTH_KM3_PER_S2)*p_t,
-        np.sqrt(p/MU_EARTH_KM3_PER_S2)*(p_r*np.sin(l) + ((w+1)*np.cos(l)+f)*p_t/w - (h*np.sin(l) - k*np.cos(l))*g*p_n/w),
-        np.sqrt(p/MU_EARTH_KM3_PER_S2)*(-p_r*np.cos(l) + ((w+1)*np.sin(l)+g)*p_t/w + (h*np.sin(l) - k*np.cos(l))*g*p_n/w),
-        np.sqrt(p/MU_EARTH_KM3_PER_S2)*(s_squared*p_n/(2*w))*np.cos(l),
-        np.sqrt(p/MU_EARTH_KM3_PER_S2)*(s_squared*p_n/(2*w))*np.sin(l),
-        (1/w)*np.sqrt(p/MU_EARTH_KM3_PER_S2)*(h*np.sin(l) - k*np.cos(l))*p_n,
-    ]
-
-    deriv_mass_collection = np.zeros(SHAPE_OUTPUT)
-    deriv_mass_collection[PROPELLANT_MASS_KG[0]:PROPELLANT_MASS_KG[1]] = state[PROPELLANT_COLLECTION_RATE_KG_PER_S[0]:PROPELLANT_COLLECTION_RATE_KG_PER_S[1]]
-    deriv_mass_collection[TAILING_MASS_KG[0]:TAILING_MASS_KG[1]] = state[TAILINGS_COLLECTION_RATE_KG_PER_S[0]:TAILINGS_COLLECTION_RATE_KG_PER_S[1]]
-
-    total_derivative = deriv_two_body + deriv_perturbation_lvlh + deriv_mass_collection
-
-    return total_derivative  # Placeholder for derivatives
-
-# RK4 Integrator
-def rk4_step(state:np.ndarray, dt:float) -> np.ndarray:
-
-    k1 = derivative(state)
-    k2 = derivative(state + 0.5 * dt * k1)
-    k3 = derivative(state + 0.5 * dt * k2)
-    k4 = derivative(state + dt * k3)
-    return state + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
-
-def quaternion_slerp(q0, q1, t):
-    """
-    Spherical linear interpolation between two quaternions.
-    """
-    dot_product = np.dot(q0, q1)
-    if dot_product < 0.0:
-        q1 = -q1
-        dot_product = -dot_product
-
-    if dot_product > 0.9995:
-        result = q0 + t * (q1 - q0)
-        return result / np.linalg.norm(result)
-
-    theta_0 = np.arccos(dot_product)
-    theta = theta_0 * t
-    sin_theta = np.sin(theta)
-    sin_theta_0 = np.sin(theta_0)
-
-    s0 = np.cos(theta) - dot_product * sin_theta / sin_theta_0
-    s1 = sin_theta / sin_theta_0
-
-    return (s0 * q0 + s1 * q1)
-
-def schedule_interpolation(
-        schedule:dict, 
-        history:np.ndarray,
-        interpolation_method:callable
-) -> np.ndarray:
-    """
-    Interpolates the schedule based on the current time using the specified interpolation method.
-    """
-    # Find the two closest times in the schedule
-    times = list(schedule.keys())
-    times.sort()
-    intervals = zip(times[:-1], times[1:])
-
-    interpolated_values = np.array([])
-
-    history_times = history[:, 0]
-
-    for i in intervals:
-        included_times = history_times[(history_times >= i[0]) & (history_times <= i[1])]
-
-        if len(included_times) == 0:
-            continue
-
-        # Get the start and end values for the interpolation
-        start_value = schedule[i[0]]
-        end_value = schedule[i[1]]
-        interpolation_factor = (included_times - i[0]) / (i[1] - i[0])
-
-        interpolated_values = np.concatenate(interpolated_values, interpolation_method(start_value, end_value, interpolation_factor))
-
-    # Return the interpolated values
-    return interpolated_values
+# Simulation parameters
+TIMESTEP_SEC = timestep_sec       # Time step (s)
+SIMULATION_LIFETIME_SEC = (end_dt - start_dt).total_seconds()
+N_STEPS = int(SIMULATION_LIFETIME_SEC / TIMESTEP_SEC)
 
 def main():
-    # Set up simulation parameters
-    cfg_file_name = sys.argv[1] if len(sys.argv) > 1 else "config.json"
-    with open(cfg_file_name) as f:
-        cfg = json.load(f)
-
-    # Load configuration parameters
-    start_dt = datetime.datetime.fromisoformat(cfg["start_iso_dt"])
-    end_dt = datetime.datetime.fromisoformat(cfg["end_iso_dt"])
-    timestep_sec = cfg["timestep_sec"]
-    p = cfg["p"]  # Semi-latus rectum (km)
-    f = cfg["f"]  # Equinoctial element f
-    g = cfg["g"]  # Equinoctial element g
-    h = cfg["h"]  # Equinoctial element h
-    k = cfg["k"]  # Equinoctial element k
-    l = cfg["l"]  # True longitude (rad)
-
-    DRY_MASS_KG = cfg["dry_mass_tons"]*1000  # Dry mass (tons)
-    MAX_PROPELLANT_MASS_KG = cfg["max_propellant_mass_tons"]*1000  # Max propellant mass (tons)
-    MAX_TAILINGS_MASS_KG = cfg["max_tailings_mass_tons"]*1000  # Max tailings mass (tons)
-    SCOOP_COLLECTOR_AREA_M2 = cfg["scoop_collector_area_m2"]  # Collector area (m^2)
-
-    # Input Schedules
-    LVLH_QUAT_SCHEDULE:dict = {
-        datetime.datetime.fromisoformat(k).timestamp(): np.array(v) for k,v in cfg["lvlh_quat_schedule"].items()
-    }
-    LVLH_QUAT_TIMES = [i for i in LVLH_QUAT_SCHEDULE.keys()]
-    LVLH_QUAT_ROTATIONS = R.from_quat(np.array([i for i in LVLH_QUAT_SCHEDULE.values()]))
-    LVLH_QUAT_SLERP = Slerp(LVLH_QUAT_TIMES, LVLH_QUAT_ROTATIONS)
-
-    SCOOP_EFFICIENCY_AOA_MAP = np.array(cfg["scoop_efficiency_aoa_map"])
-
-    SCOOP_THROTTLE_DRAG_MULTIPLIER = np.array(cfg["scoop_throttle_drag_multiplier"])
-    
-    SCOOP_EFF_DRAG_AREA_M2_AOA_MAP = np.array(cfg["scoop_effective_drag_area_m2_aoa_map"])
-
-    SPACECRAFT_EFF_DRAG_AREA_M2_AOA_MAP = np.array(cfg["spacecraft_effective_drag_area_m2_aoa_map"])
-
-    SCOOP_EFFICIENCY_INTERP = interp1d(SCOOP_EFFICIENCY_AOA_MAP[:, 0], SCOOP_EFFICIENCY_AOA_MAP[:, 1], kind='linear')
-    SCOOP_THROTTLE_DRAG_MULT_INTERP = interp1d(SCOOP_THROTTLE_DRAG_MULTIPLIER[:, 0], SCOOP_THROTTLE_DRAG_MULTIPLIER[:, 1], kind='linear')
-    SCOOP_EFF_DRAG_AREA_INTERP = interp1d(SCOOP_EFF_DRAG_AREA_M2_AOA_MAP[:, 0], SCOOP_EFF_DRAG_AREA_M2_AOA_MAP[:, 1], kind='linear')
-    SPACECRAFT_EFF_DRAG_AREA_INTERP = interp1d(SPACECRAFT_EFF_DRAG_AREA_M2_AOA_MAP[:, 0], SPACECRAFT_EFF_DRAG_AREA_M2_AOA_MAP[:, 1], kind='linear')
-
-    # Simulation parameters
-    TIMESTEP_SEC = timestep_sec       # Time step (s)
-    SIMULATION_LIFETIME_SEC = (end_dt - start_dt).total_seconds()
-    N_STEPS = int(SIMULATION_LIFETIME_SEC / TIMESTEP_SEC)
 
     # Initial state: [p, f, g, h, k, l]
-    state = np.zeros(OUTPUT_STATE[1]-OUTPUT_STATE[0]) 
-    state[:6] = (p, f, g, h, k, l)  # mod equinoctial elements
-    state[6] = 0  # Tank Fill State
+    state = np.zeros(SHAPE_STATE[0]) 
+    state[MOD_EQUINOCTIAL_ELEMENTS[0]:MOD_EQUINOCTIAL_ELEMENTS[1]] = (p, f, g, h, k, l)  # mod equinoctial elements
+    state[PROPELLANT_MASS_KG[0]] = INIT_PROPELLANT_MASS_KG  # Initial propellant mass (kg)
+    state[TAILING_MASS_KG[0]] = 0.0  # Initial tailing mass (kg)
+    state[ENERGY_STORED_J[0]] = 0.0  # Initial energy stored (J)
 
     # Store simulation history
     history = np.zeros((N_STEPS, SHAPE_STATE[0]+1))  
@@ -289,12 +165,13 @@ def main():
     history[:, 0] = np.array([start_dt.timestamp() + i*TIMESTEP_SEC for i in range(N_STEPS)])  # Time in seconds since J2000
     datetimes = [datetime.datetime.fromtimestamp(i) for i in history[:, 0]]  # Convert to datetime objects
     history[:, BODY_TO_LVLH_QUATERNION[0]+1:BODY_TO_LVLH_QUATERNION[1]+1] = LVLH_QUAT_SLERP(history[:, 0]).as_quat()  # LVLH quaternion
+    history[:, THRUSTER_POWER_COMMAND[0]+1] = THRUST_POWER_INTERP(history[:, 0])  # Thrust power command
 
     # Run simulation
     for i in range(N_STEPS):
         flag_terminate = False
         if i % (N_STEPS/100) == 0:
-            print(f"Step {i}/{N_STEPS}")
+            print(f"Step {i}/{N_STEPS}: {datetimes[i].isoformat()}, Avg Alt: {state[MOD_EQUINOCTIAL_ELEMENTS[0]]-R_EARTH_KM: .3f} km, Propellant Mass: {state[PROPELLANT_MASS_KG[0]]: .3f} kg, Tailing Mass: {state[TAILING_MASS_KG[0]]: .3f} kg")
 
         if i > 0:
             if state[ALT[0]] < 0.5 * KARMAN_ALT_KM:
@@ -307,6 +184,8 @@ def main():
                 history = history[:i, :]  # Trim history to current step
                 break
 
+        # update Inputs
+        state[INPUT_STATE[0]:INPUT_STATE[1]] = history[i, INPUT_STATE[0]+1:INPUT_STATE[1]+1]  # Update input state
 
         state = rk4_step(state, TIMESTEP_SEC).flatten()
         elements = state[:6]  # mod equinoctial elements
@@ -467,6 +346,23 @@ def main():
 
         state[PROPELLANT_COLLECTION_RATE_KG_PER_S[0]:PROPELLANT_COLLECTION_RATE_KG_PER_S[1]] = propellant_mass_collection_rate  # Propellant mass collection rate
         state[TAILINGS_COLLECTION_RATE_KG_PER_S[0]:TAILINGS_COLLECTION_RATE_KG_PER_S[1]] = tailing_mass_collection_rate  # Tailing mass collection rate
+
+        # Thruster Operation
+        state[POWER_GENERATED_WATT[0]:POWER_GENERATED_WATT[1]] = MAX_THRUST_POWER_WATT  # Power generated (W) PLACEHOLDER TODO: Implement power generation
+
+        power_output_watt, thrust_newtons, isp_sec = thruster_controller(state)
+        state[DERIVED_THRUST_POWER_WATT[0]:DERIVED_THRUST_POWER_WATT[1]] = power_output_watt  # Power output (W)
+        state[DERIVED_THRUST_FORCE_KN[0]:DERIVED_THRUST_FORCE_KN[1]] = thrust_newtons*0.001  # Thrust force (kN)
+        state[DERIVED_ISP_SEC[0]:DERIVED_ISP_SEC[1]] = isp_sec  # Specific impulse (s)
+
+        propellant_drain_rate = thrust_newtons / (STANDARD_GRAVITY * isp_sec)  # Propellant drain rate (kg/s)
+        if np.isnan(propellant_drain_rate):
+            propellant_drain_rate = 0
+        state[PROPELLANT_DRAIN_RATE_KG_PER_S[0]:PROPELLANT_DRAIN_RATE_KG_PER_S[1]] = propellant_drain_rate  # Propellant drain rate (kg/s)
+
+        lvlh_thrust_vector_kn = body_to_lvlh_rot.apply(BODY_FRAME_THRUST_VECTOR*thrust_newtons*0.001)  # Thrust vector in LVLH frame
+        thrust_perturbation_km_per_s2 = lvlh_thrust_vector_kn / total_mass_kg  # Thrust perturbation (km/s^2)
+        state[THRUST_PERTURBATION_KM_PER_S2[0]:THRUST_PERTURBATION_KM_PER_S2[1]] = thrust_perturbation_km_per_s2  # Thrust perturbation (km/s^2)
 
         # Store history
         history[i, 1:(len(state)+1)] = state
@@ -666,6 +562,141 @@ def main():
     plt.grid()
     plt.show()
 
+def thruster_controller(state:np.ndarray) -> np.ndarray:
+    '''
+    Controller for the thruster. Outputs a power(W)-thrust(N)-Isp(s) triplet given a thruster power schedule.
+
+    Demo controller outputs maximum thrust for power output level commanded and propellant collection flow.
+    '''
+    if state.shape != SHAPE_STATE:
+        raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
+
+    available_power_w = MAX_THRUST_POWER_WATT if not state[ENERGY_STORED_J[0]] < 0.0 else state[POWER_GENERATED_WATT[0]]
+    thruster_power_command = state[THRUSTER_POWER_COMMAND[0]]
+    power_commanded = available_power_w * thruster_power_command
+
+    if state[PROPELLANT_MASS_KG[0]] > 0.0:
+        power_output = power_commanded
+        thrust_newtons = power_output / (0.5*(STANDARD_GRAVITY*MIN_ISP_SEC)**2)
+        isp_seconds = MIN_ISP_SEC
+    else:
+        available_propellant_flow_kg_per_s = state[PROPELLANT_COLLECTION_RATE_KG_PER_S[0]]
+        power_output = min(power_commanded, 0.5 * (STANDARD_GRAVITY * MAX_ISP_SEC)**2 * available_propellant_flow_kg_per_s)
+        thrust_newtons = np.sqrt(2 * power_output * available_propellant_flow_kg_per_s)
+        isp_seconds = power_output / (0.5 * thrust_newtons)
+        if np.isnan(isp_seconds):
+            isp_seconds = 0.0
+
+    return np.array([power_output, thrust_newtons, isp_seconds])
+
+def scoop_throttle_controller(state:np.ndarray, max_propellant_kg, max_tailings_kg) -> np.float64:
+    """
+    Controller for the scoop throttle. Outputs a scalar value between 0 and 1.
+
+    Demo controller deactivates the scoop if all tanks are full or the scoop is at zero efficiency.
+    """
+    # dimension check
+    if state.shape != SHAPE_STATE:
+        raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
+    
+    if state[SCOOP_EFFICIENCY[0]] <= 0.0:
+        return 0.0
+    if state[PROPELLANT_MASS_KG[0]] <= max_propellant_kg:
+        return 1.0
+    if state[TAILING_MASS_KG[0]] <= max_tailings_kg:
+        return 1.0
+
+    return 0.0
+
+# Define perturbation (extendable)
+def perturbation_lvlh(state:np.ndarray) -> np.ndarray:
+    # dimension check
+    if state.shape != SHAPE_STATE:
+        raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
+    
+    # Unpack state vector
+    elements = state[0:6]  # mod equinoctial elements
+
+    p, f, g, h, k, l = elements
+    w = orb_mech_utils.w_from_mod_equinoctial(elements)
+    r = p/w  # radius in km
+
+    j2_perturbation_km_per_s2 = np.array([
+        -3/2 * J2_EARTH * MU_EARTH_KM3_PER_S2 * (R_EARTH_KM/(r**2))**2 * (1 - 12*(h*np.sin(l) - k*np.cos(l))**2/(1 + h**2 + k**2)**2),
+        -12 * J2_EARTH * MU_EARTH_KM3_PER_S2 * (R_EARTH_KM/(r**2))**2 * (h*np.sin(l) - k*np.cos(l))*(h*np.cos(l) + k*np.sin(l))/(1 + h**2 + k**2)**2,
+        -6 * J2_EARTH * MU_EARTH_KM3_PER_S2 * (R_EARTH_KM/(r**2))**2 * (1 - h**2 - k**2) * (h*np.sin(l) - k*np.cos(l))/(1 + h**2 + k**2)**2
+    ])
+
+    drag_perturbation_km_per_s2 = state[DRAG_PERTURBATION_KM_PER_S2[0]:DRAG_PERTURBATION_KM_PER_S2[1]]  # Drag perturbation in km/s^2
+
+    # print(atmospheric_momentum_flux_Pa)
+    # print((drag_perturbation_km_per_s2))
+
+    thrust_perturbation_km_per_s2 = state[THRUST_PERTURBATION_KM_PER_S2[0]:THRUST_PERTURBATION_KM_PER_S2[1]]  # Thrust perturbation in km/s^2
+
+    # total_perturbation = np.zeros(SHAPE_PERTURBATION)
+    total_perturbation = (
+        j2_perturbation_km_per_s2
+        + drag_perturbation_km_per_s2
+        + thrust_perturbation_km_per_s2
+    )
+    
+    return total_perturbation  # Placeholder for perturbation vector
+
+# Function computing derivatives for RK4
+def derivative(state:np.ndarray) -> np.ndarray:
+    # dimension check
+    if state.shape != SHAPE_STATE:
+        raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
+    
+    # Unpack state vector
+    flat_state = state.flatten()
+    elements = flat_state[0:6]  # mod equinoctial elements
+
+    p, f, g, h, k, l = elements
+    w = orb_mech_utils.w_from_mod_equinoctial(elements)
+    s_squared = orb_mech_utils.s_squared_from_mod_equinoctial(elements)
+
+    deriv_two_body = np.zeros(SHAPE_STATE)
+    deriv_two_body[5] = np.sqrt(MU_EARTH_KM3_PER_S2 * p)*(w/p)**2
+
+    p_r,p_t,p_n = perturbation_lvlh(state)
+
+    deriv_perturbation_lvlh = np.zeros(SHAPE_STATE)
+    deriv_perturbation_lvlh[:6] = [
+        (2*p)/w*np.sqrt(p/MU_EARTH_KM3_PER_S2)*p_t,
+        np.sqrt(p/MU_EARTH_KM3_PER_S2)*(p_r*np.sin(l) + ((w+1)*np.cos(l)+f)*p_t/w - (h*np.sin(l) - k*np.cos(l))*g*p_n/w),
+        np.sqrt(p/MU_EARTH_KM3_PER_S2)*(-p_r*np.cos(l) + ((w+1)*np.sin(l)+g)*p_t/w + (h*np.sin(l) - k*np.cos(l))*g*p_n/w),
+        np.sqrt(p/MU_EARTH_KM3_PER_S2)*(s_squared*p_n/(2*w))*np.cos(l),
+        np.sqrt(p/MU_EARTH_KM3_PER_S2)*(s_squared*p_n/(2*w))*np.sin(l),
+        (1/w)*np.sqrt(p/MU_EARTH_KM3_PER_S2)*(h*np.sin(l) - k*np.cos(l))*p_n,
+    ]
+
+    deriv_mass_collection = np.zeros(SHAPE_STATE)
+    deriv_mass_collection[PROPELLANT_MASS_KG[0]:PROPELLANT_MASS_KG[1]] = state[PROPELLANT_COLLECTION_RATE_KG_PER_S[0]:PROPELLANT_COLLECTION_RATE_KG_PER_S[1]]
+    deriv_mass_collection[TAILING_MASS_KG[0]:TAILING_MASS_KG[1]] = state[TAILINGS_COLLECTION_RATE_KG_PER_S[0]:TAILINGS_COLLECTION_RATE_KG_PER_S[1]]
+
+    deriv_mass_depletion = np.zeros(SHAPE_STATE)
+    deriv_mass_depletion[PROPELLANT_MASS_KG[0]:PROPELLANT_MASS_KG[1]] = state[PROPELLANT_DRAIN_RATE_KG_PER_S[0]:PROPELLANT_DRAIN_RATE_KG_PER_S[1]]
+
+    deriv_power_balance = np.zeros(SHAPE_STATE)
+    deriv_power_balance[ENERGY_STORED_J[0]:ENERGY_STORED_J[1]] = (
+        state[POWER_GENERATED_WATT[0]:POWER_GENERATED_WATT[1]] 
+        - state[DERIVED_THRUST_POWER_WATT[0]:DERIVED_THRUST_POWER_WATT[1]]
+    )
+
+    total_derivative = deriv_two_body + deriv_perturbation_lvlh + deriv_mass_collection - deriv_mass_depletion
+
+    return total_derivative  # Placeholder for derivatives
+
+# RK4 Integrator
+def rk4_step(state:np.ndarray, dt:float) -> np.ndarray:
+
+    k1 = derivative(state)
+    k2 = derivative(state + 0.5 * dt * k1)
+    k3 = derivative(state + 0.5 * dt * k2)
+    k4 = derivative(state + dt * k3)
+    return state + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
 
 
 if __name__ == "__main__":
