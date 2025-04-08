@@ -190,6 +190,7 @@ def main():
             current_time = datetimes[i]
             # update Inputs
             state[INPUT_STATE[0]:INPUT_STATE[1]] = history[i, INPUT_STATE[0]+1:INPUT_STATE[1]+1]  # Update input state
+            state[MOD_EQUINOCTIAL_ELEMENTS[1]-1] = state[MOD_EQUINOCTIAL_ELEMENTS[1]-1] % (2*np.pi)  # Wrap true longitude to [0, 2*pi]
 
             integrator = DOP853(derivative, current_time.timestamp(),state,current_time.timestamp()+TIMESTEP_SEC)  # Integrate state using DOP853
             while integrator.status == "running":
@@ -440,32 +441,50 @@ def main():
     ax.set_title('3D Trajectory')
     plt.show()
 
-    # # Plot elements over time in separate subplots
-    # fig, axs = plt.subplots(3, 2, figsize=(12, 8))
-    # axs[0, 0].plot(mission_elapsed_time_days, history[:, 1])
-    # axs[0, 0].set_title('Semi-latus Rectum (p)')
-    # axs[0, 0].set_xlabel('Time (days)')
-    # axs[0, 0].set_ylabel('p (km)')
-    # axs[0, 1].plot(mission_elapsed_time_days, history[:, 2])
-    # axs[0, 1].set_title('Equinoctial Element f')
-    # axs[0, 1].set_xlabel('Time (days)')
-    # axs[0, 1].set_ylabel('f')
-    # axs[1, 0].plot(mission_elapsed_time_days, history[:, 3])
-    # axs[1, 0].set_title('Equinoctial Element g')
-    # axs[1, 0].set_xlabel('Time (days)')
-    # axs[1, 0].set_ylabel('g')
-    # axs[1, 1].plot(mission_elapsed_time_days, history[:, 4])
-    # axs[1, 1].set_title('Equinoctial Element h')
-    # axs[1, 1].set_xlabel('Time (days)')
-    # axs[1, 1].set_ylabel('h')
-    # axs[2, 0].plot(mission_elapsed_time_days, history[:, 5])
-    # axs[2, 0].set_title('Equinoctial Element k')
-    # axs[2, 0].set_xlabel('Time (days)')
-    # axs[2, 0].set_ylabel('k')
-    # axs[2, 1].plot(mission_elapsed_time_days, history[:, 6])
-    # axs[2, 1].set_title('True Longitude (l)')
-    # axs[2, 1].set_xlabel('Time (days)')
-    # axs[2, 1].set_ylabel('l (rad)')
+    elements = history[:, MOD_EQUINOCTIAL_ELEMENTS[0]:MOD_EQUINOCTIAL_ELEMENTS[1]]  # mod equinoctial elements
+    keplerian_elements = np.zeros((history.shape[0], 6))
+    for i in range(history.shape[0]):
+        try:
+            keplerian_elements[i, :] = orb_mech_utils.mod_equinoctial_to_keplerian(
+                elements[i, :],
+            )  # Convert to Keplerian elements
+        except ValueError as e:
+            print(f"Error at step {i}: {e}")
+            break
+        except IndexError as e:
+            print(f"Error at step {i}: {e}")
+            keplerian_elements[i, :] = np.nan
+            continue
+
+    # Plot Keplerian elements over time in separate subplots
+    fig, axs = plt.subplots(3, 2, figsize=(12, 8))
+    axs[0, 0].plot(mission_elapsed_time_days, keplerian_elements[:, 0], color='blue', linestyle=':')
+    axs[0, 0].set_title('Semi-Major Axis Over Time')
+    axs[0, 0].set_xlabel('Time (days)')
+    axs[0, 0].set_ylabel('Semi-Major Axis (km)')
+    axs[0, 1].plot(mission_elapsed_time_days, keplerian_elements[:, 1], color='blue', linestyle=':')
+    axs[0, 1].set_title('Eccentricity Over Time')
+    axs[0, 1].set_xlabel('Time (days)')
+    axs[0, 1].set_ylabel('Eccentricity')
+    axs[1, 0].plot(mission_elapsed_time_days, np.rad2deg(keplerian_elements[:, 2]), color='blue', linestyle=':')
+    axs[1, 0].set_title('Inclination Over Time')
+    axs[1, 0].set_xlabel('Time (days)')
+    axs[1, 0].set_ylabel('Inclination (degrees)')
+    axs[1, 1].plot(mission_elapsed_time_days, np.rad2deg(keplerian_elements[:, 3]), color='blue', linestyle=':')
+    axs[1, 1].set_title('RAAN Over Time')
+    axs[1, 1].set_xlabel('Time (days)')
+    axs[1, 1].set_ylabel('RAAN (degrees)')
+    axs[2, 0].plot(mission_elapsed_time_days, np.rad2deg(keplerian_elements[:, 4]), color='blue', linestyle=':')
+    axs[2, 0].set_title('Argument of Periapsis Over Time')
+    axs[2, 0].set_xlabel('Time (days)')
+    axs[2, 0].set_ylabel('Argument of Periapsis (degrees)')
+    axs[2, 1].plot(mission_elapsed_time_days, np.rad2deg(keplerian_elements[:, 5]), color='blue', linestyle=':')
+    axs[2, 1].set_title('True Anomaly Over Time')
+    axs[2, 1].set_xlabel('Time (days)')
+    axs[2, 1].set_ylabel('True Anomaly (degrees)')
+    plt.tight_layout()
+    plt.show()
+
 
     # plt.tight_layout()
     # plt.show()

@@ -55,6 +55,26 @@ def mod_equinoctial_to_eci_state(
 
     return np.array([rx, ry, rz, vx, vy, vz])  # ECI state vector
 
+def mod_equinoctial_to_keplerian(elements:np.ndarray) -> np.ndarray:
+    """
+    Convert mod equinoctial elements to Keplerian elements.
+    
+    Parameters:
+        elements (np.ndarray): Mod equinoctial elements [p, f, g, h, k, l].
+        
+    Returns:
+        np.ndarray: Keplerian elements [a, e, i, RAAN, w, M].
+    """
+    p, f, g, h, k, l = elements
+    a = p / (1 - f**2 - g**2)
+    e = np.sqrt(f**2 + g**2)
+    i = np.arctan2(2*np.sqrt(h**2 + k**2),1-h**2-k**2)
+    raan = np.arctan2(k, h)
+    w = np.arctan2(g*h-f*k, f*h + g*k)
+    theta = l - (raan + w)
+
+    return np.array([a, e, i, raan, w, theta])
+
 def w_from_mod_equinoctial(elements:np.ndarray) -> float:
     """
     Calculate the w parameter from mod equinoctial elements.
