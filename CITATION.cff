@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Your Software Title"
+authors:
+    - family-names: "Su"
+      given-names: "Dean"
+      orcid: "https://orcid.org/0009-0005-6322-2211"
+date-released: "2023-04-09"
+version: "1.0.0"
+# doi: "10.1234/example-doi"
+repository-code: "https://github.com/dsdy120/prop-harvester-model"
+license: "None"
