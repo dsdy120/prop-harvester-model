@@ -12,6 +12,7 @@ import sys
 import json
 import pymap3d
 import datetime
+import ephem
 
 ####################
 # Constants
@@ -23,6 +24,7 @@ J2_EARTH = 1.08262668e-3  # J2 coefficient for Earth
 F_EARTH = 0.003352810664747480  # Flattening factor for Earth
 ANG_VEL_EARTH_RAD_PER_S = 7.2921159e-5  # rad/s, Earth's angular velocity
 STANDARD_GRAVITY = 9.80665  # m/s^2, standard gravity
+SOLAR_INTENSITY_W_PER_M2 = 1361.0  # W/m^2, solar constant
 
 # Atmospheric parameters
 KARMAN_ALT_KM = 100.0  # km, Karman line
@@ -79,7 +81,8 @@ DERIVED_THRUST_FORCE_KN                 = (109, 110)
 DERIVED_ISP_SEC                         = (110, 111)
 POWER_GENERATED_WATT                    = (111, 112)
 PROPELLANT_DRAIN_RATE_KG_PER_S          = (112, 113)
-
+SUN_VECTOR                              = (113, 116)
+FLAG_SHADOWED                           = (116, 117)
 
 INPUT_STATE                             = (150, 200)
 BODY_TO_LVLH_QUATERNION                 = (150, 154)
@@ -111,6 +114,8 @@ MAX_PROPELLANT_MASS_KG = cfg["max_propellant_mass_tons"]*1000  # Max propellant 
 MAX_TAILINGS_MASS_KG = cfg["max_tailings_mass_tons"]*1000  # Max tailings mass (tons)
 SCOOP_COLLECTOR_AREA_M2 = cfg["scoop_collector_area_m2"]  # Collector area (m^2)
 INIT_ENERGY_STORED_J = cfg["init_energy_joules"]  # Initial energy stored (J)
+SOLAR_CELL_EFFICIENCY = cfg["solar_cell_efficiency"]  # Solar cell efficiency (0-1)
+SOLAR_CELL_AREA_M2 = cfg["solar_cell_area_m2"]  # Solar cell area (m^2)
 
 # Input Schedules
 LVLH_QUAT_SCHEDULE:dict = {
@@ -356,7 +361,22 @@ def main():
             state[TAILINGS_COLLECTION_RATE_KG_PER_S[0]:TAILINGS_COLLECTION_RATE_KG_PER_S[1]] = tailing_mass_collection_rate  # Tailing mass collection rate
 
             # Thruster Operation
-            state[POWER_GENERATED_WATT[0]:POWER_GENERATED_WATT[1]] = MAX_THRUST_POWER_WATT  # Power generated (W) PLACEHOLDER TODO: Implement power generation
+            sun_ephemeris = ephem.Sun()
+            sun_ephemeris.compute(current_time.strftime('%Y/%m/%d %H:%M:%S'))
+            sun_ra = sun_ephemeris.a_ra
+            sun_dec = sun_ephemeris.a_dec
+            sun_vector = np.array([
+                np.cos(sun_dec) * np.cos(sun_ra),
+                np.cos(sun_dec) * np.sin(sun_ra),
+                np.sin(sun_dec)
+            ])
+            state[SUN_VECTOR[0]:SUN_VECTOR[1]] = sun_vector  # Sun vector
+
+            shadowed = np.linalg.norm(np.cross((eci_state_km[0:3]), state[SUN_VECTOR[0]:SUN_VECTOR[1]])) < R_EARTH_KM and np.dot(eci_state_km[0:3], state[SUN_VECTOR[0]:SUN_VECTOR[1]]) < 0 # Shadowed flag
+            state[FLAG_SHADOWED[0]:FLAG_SHADOWED[1]] = float(shadowed)  # Shadowed flag
+
+            state[POWER_GENERATED_WATT[0]:POWER_GENERATED_WATT[1]] = (1-shadowed) * SOLAR_INTENSITY_W_PER_M2 * SOLAR_CELL_AREA_M2 * SOLAR_CELL_EFFICIENCY  # Power generated (W) PLACEHOLDER TODO: Implement power generation
+            # print(f"Power generated: {state[POWER_GENERATED_WATT[0]:POWER_GENERATED_WATT[1]]} W")
 
             power_output_watt, thrust_newtons, isp_sec = thruster_controller(state)
             state[DERIVED_THRUST_POWER_WATT[0]:DERIVED_THRUST_POWER_WATT[1]] = power_output_watt  # Power output (W)
@@ -485,6 +505,27 @@ def main():
     plt.tight_layout()
     plt.show()
 
+    # Plot illumination time per day
+    fig, ax = plt.subplots(figsize=(8, 6))
+    illumination_time_per_day = np.zeros((history.shape[0], 2))
+    illumination_time_per_day[:, 0] = mission_elapsed_time_days
+    for i in range(history.shape[0]):
+        STEPS_IN_DAY = int(86400 / TIMESTEP_SEC)
+        try:
+            illumination_time_per_day[i, 1] = 1 - np.sum(history[i-STEPS_IN_DAY//2:i+STEPS_IN_DAY//2, FLAG_SHADOWED[0]]) / STEPS_IN_DAY
+        except IndexError as e:
+            print(f"Error at step {i}: {e}")
+            illumination_time_per_day[i, 1] = np.nan
+            continue
+    ax.plot(illumination_time_per_day[:, 0], illumination_time_per_day[:, 1], color='blue')
+    ax.set_title('Illumination Time Per Day')
+    ax.set_xlabel('Time (days)')
+    ax.set_ylabel('Illumination Time (fraction of day)')
+    ax.set_ylim(0, 1)
+    ax.set_xlim(0, mission_elapsed_time_days[-1])
+    ax.grid()
+    plt.show()
+
 
     # plt.tight_layout()
     # plt.show()
@@ -607,7 +648,7 @@ def thruster_controller(state:np.ndarray) -> np.ndarray:
     if state.shape != SHAPE_STATE:
         raise ValueError(f"State vector must have {SHAPE_STATE} elements, currently has {state.shape} elements.")
 
-    available_power_w = MAX_THRUST_POWER_WATT if not state[ENERGY_STORED_J[0]] < 0.0 else state[POWER_GENERATED_WATT[0]]
+    available_power_w = MAX_THRUST_POWER_WATT if not state[ENERGY_STORED_J[0]] < MAX_THRUST_POWER_WATT * TIMESTEP_SEC else state[POWER_GENERATED_WATT[0]]*0.9
     thruster_power_command = state[THRUSTER_POWER_COMMAND[0]] #if state[ALT[0]] < p - R_EARTH_KM else 0.0
     power_commanded = available_power_w * thruster_power_command
 
@@ -719,7 +760,7 @@ def derivative(t,state:np.ndarray) -> np.ndarray:
         - state[DERIVED_THRUST_POWER_WATT[0]:DERIVED_THRUST_POWER_WATT[1]]
     )
 
-    total_derivative = deriv_two_body + deriv_perturbation_lvlh + deriv_mass_collection - deriv_mass_depletion
+    total_derivative = deriv_two_body + deriv_perturbation_lvlh + deriv_mass_collection - deriv_mass_depletion + deriv_power_balance
 
     return total_derivative  # Placeholder for derivatives
 
